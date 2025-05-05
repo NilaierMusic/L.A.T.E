@@ -1,0 +1,142 @@
+###############################################################################
+#  L.A.T.E  –  combined .gitignore (Visual Studio + Unity + a few extras)     #
+###############################################################################
+
+############################
+# 🌐  OS- / editor-specific #
+############################
+.DS_Store
+Thumbs.db
+.idea/               # JetBrains Rider / IntelliJ
+.vs/                 # Visual Studio cache
+.vscode/             # VS Code workspace settings
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+########################
+# 🔨  build artefacts   #
+########################
+# General .NET / MSBuild
+[Bb]in/
+[Oo]bj/
+[Dd]ebug*/
+[Rr]elease*/
+artifacts/
+*.dll
+*.exe
+*.pdb
+*.tmp
+*.tmp_proj
+*.cache
+*.log
+logs/
+[Ll]og/
+[Ll]ogs/
+# Architectures
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+
+#########################
+# 📦  NuGet / packages  #
+#########################
+*.nupkg
+*.snupkg
+**/[Pp]ackages/**
+!**/[Pp]ackages/build/
+project.lock.json
+project.fragment.lock.json
+*.nuget.props
+*.nuget.targets
+
+##################
+# 🧪  test output #
+##################
+[Tt]est[Rr]esult*/
+*.coverage
+*.coveragexml
+*.VisualState.xml
+BenchmarkDotNet.Artifacts/
+
+#################
+# 🎮  Unity     #
+#################
+# Core Unity folders
+[Ll]ibrary/
+[Tt]emp/
+[Bb]uild/
+[Bb]uilds/
+ExportedObj/
+[Aa]ssets/Plugins/Editor/JetBrains*
+# Unity cache / logs
+[Ll]ogs/
+*.log
+[Mm]emoryCaptures/
+[Rr]ecordings/
+# Rider / VS / Consulo project files that Unity can regen
+*.unityproj
+*.pidb
+*.pidb.meta
+*.pdb.meta
+*.mdb
+*.mdb.meta
+*.opendb
+*.VC.db
+# Auto-generated
+sysinfo.txt
+# Addressables & StreamingAssets (large binary blobs)
+[Aa]ssets/[Aa]ddressable[Aa]ssets[Dd]ata/*/*.bin*
+[Aa]ssets/[Ss]treamingAssets/aa.meta
+[Aa]ssets/[Ss]treamingAssets/aa/*
+
+###########################
+# 📱  mobile / build bins #
+###########################
+*.apk
+*.aab
+*.app
+*.unitypackage
+*.unitypackage.meta
+PublishScripts/
+publish/
+AppPackages/
+BundleArtifacts/
+
+#################################
+# 🔁  files Unity template hides #
+#      but WE actually want     #
+#################################
+!*.sln
+!*.csproj
+!*.props
+!*.targets
+!Directory.Build.rsp
+
+#########################
+# 🗑️  Misc tooling junk #
+#########################
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+_TeamCity*
+.axoCover/
+.coverage*
+_NCrunch_*
+.ncrunch*
+*crunch*.local.xml
+node_modules/
+*.code-workspace
+.fake/
+.paket/
+paket-files/
+healthchecksdb
+.history/
+.vshistory/
+
+########################################################
+#  End of file – add any project-specific rules below  #
+########################################################
