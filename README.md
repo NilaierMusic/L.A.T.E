@@ -1,9 +1,9 @@
 # L.A.T.E - Late Access To Everyone 🚀
 
 <!-- Thunderstore stats -->
-[![Thunderstore Version](https://img.shields.io/thunderstore/v/Nilaier/LATE?style=for-the-badge&logo=thunderstore&logoColor=white)](https://thunderstore.io/c/repo/p/Nilaier/LATE/)
-[![Thunderstore Downloads](https://img.shields.io/thunderstore/dt/Nilaier/LATE?style=for-the-badge&logo=thunderstore&logoColor=white)](https://thunderstore.io/c/repo/p/Nilaier/LATE/)
-[![Thunderstore Likes](https://img.shields.io/thunderstore/likes/Nilaier/LATE?style=for-the-badge&logo=thunderstore&logoColor=white)](https://thunderstore.io/c/repo/p/Nilaier/LATE/)
+[![Thunderstore Version](https://img.shields.io/thunderstore/v/Nilaier/L_A_T_E?style=for-the-badge&logo=thunderstore&logoColor=white)](https://thunderstore.io/c/repo/p/Nilaier/LATE/)
+[![Thunderstore Downloads](https://img.shields.io/thunderstore/dt/Nilaier/L_A_T_E?style=for-the-badge&logo=thunderstore&logoColor=white)](https://thunderstore.io/c/repo/p/Nilaier/LATE/)
+[![Thunderstore Likes](https://img.shields.io/thunderstore/likes/Nilaier/L_A_T_E?style=for-the-badge&logo=thunderstore&logoColor=white)](https://thunderstore.io/c/repo/p/Nilaier/LATE/)
 
 <!-- GitHub stats -->
 [![GitHub Stars](https://img.shields.io/github/stars/NilaierMusic/L.A.T.E?style=for-the-badge&logo=github)](https://github.com/NilaierMusic/L.A.T.E/stargazers)
@@ -93,8 +93,7 @@ You can edit this file directly using a text editor, **OR** you can use an in-ga
 
 ## 🤝 Compatibility & Testing Environment
 * Patches core game systems (networking, loading, spawning, items, enemies) using Harmony and MonoMod.
-* **Game Version:** developed & tested on **stable R.E.P.O. build 0.1.2**.
-* **Beta Builds:** **untested** – may break. 🚧
+* **Game Version:** developed & tested on both **stable and beta R.E.P.O. builds 0.1.2/0.1.2_22beta**.
 * Heavy reflection: future game updates are likely to break the mod until updated.
 
 
@@ -104,6 +103,15 @@ You can edit this file directly using a text editor, **OR** you can use an in-ga
   * Values shown may be incorrect because of L.A.T.E.’s resync.
 * **Mods Using Custom RPCs without Late-Join Handling**
   * Late joiners may desync if the other mod doesn’t resend state.
+* **Mods that Skip Main Menu/Lobby Processes**
+  * e.g. [`FastStartup`](https://thunderstore.io/c/repo/p/Kesomannen/FastStartup/)
+  * Skipping essential menu and lobby steps can interfere with L.A.T.E.'s initialization and synchronization logic.
+* **Mods Hooking into Level Generation or Completion with Potential Conflicts**
+  * e.g. [`BerserkerEnemies`](https://thunderstore.io/c/repo/p/FNKT_Labs/BerserkerEnemies/)
+    * This mod also hooks into `GenerateDone` and may cause silent NullReferenceExceptions (NREs), preventing L.A.T.E.'s necessary postfix operations from executing.
+  * e.g. [`Imperium_Repo`](https://thunderstore.io/c/repo/p/giosuel/Imperium_Repo/)
+    * This mod patches `LoadingLevelAnimationCompleted`, which can lead to conflicts and result in parts of Imperium's functionality not working correctly alongside L.A.T.E.
+    * _Note: While L.A.T.E. has a fail-safe to prevent permanent lobby locking in such scenarios, underlying issues within these mods may still persist._
 
 
 ## 🤔 Known Issues
@@ -117,12 +125,12 @@ You can edit this file directly using a text editor, **OR** you can use an in-ga
 
 ## 🐛 Reporting Issues
 Found a bug? Please open an issue on the  
-[GitHub Issues page](https://github.com/NilaierMusic/L.A.T.E/issues) or ask in **#mod-support** on the Modding Discord.
+[GitHub Issues page](https://github.com/NilaierMusic/L.A.T.E/issues).
 
 Include:
 1. `nilaier.late.cfg`
 2. `BepInEx/LogOutput.log`
-3. R.E.P.O. version (`0.1.2 Stable`, `0.1.2_21 Beta`, etc.)
+3. R.E.P.O. version (`0.1.2 Stable`, `0.1.2_22 Beta`, etc.)
 4. What happened
 5. Other mods in use
 

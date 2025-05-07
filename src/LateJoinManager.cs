@@ -140,6 +140,7 @@ namespace L.A.T.E
             {
                 // Standard Sync Calls
                 SyncLevelState(targetPlayer);
+                SyncModuleConnectionStatesForPlayer(targetPlayer);
                 SyncExtractionPointsForPlayer(targetPlayer); // Syncs EP state first
 
                 bool isShopScene = SemiFunc.RunIsShop();
@@ -150,7 +151,7 @@ namespace L.A.T.E
                 else
                 {
                     SyncAllValuablesForPlayer(targetPlayer); // Sync valuable values
-                    DestructionManager.SyncBrokenHingesForPlayer(targetPlayer); // Relies on host sending targeted RPCs if needed
+                    DestructionManager.SyncHingeStatesForPlayer(targetPlayer); // Relies on host sending targeted RPCs if needed
                 }
                 TriggerPropSwitchSetup(targetPlayer);
                 EnemyManager.SyncAllEnemyStatesForPlayer(targetPlayer);
@@ -313,6 +314,89 @@ namespace L.A.T.E
             }
         }
         #endregion
+
+        #region NEW Module Sync Method
+        /// <summary>
+        /// Finds all Module components and re-sends their connection state RPC
+        /// specifically to the target late-joining player.
+        /// </summary>
+        private static void SyncModuleConnectionStatesForPlayer(Player targetPlayer)
+        {
+            string nick = targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
+            LateJoinEntry.Log.LogInfo($"[LateJoinManager][Module Sync] Starting Module connection sync for {nick}.");
+
+            // Check if reflection fields are loaded
+            if (Utilities.modSetupDoneField == null || Utilities.modConnectingTopField == null ||
+                Utilities.modConnectingBottomField == null || Utilities.modConnectingRightField == null ||
+                Utilities.modConnectingLeftField == null || Utilities.modFirstField == null)
+            {
+                LateJoinEntry.Log.LogError("[LateJoinManager][Module Sync] Critical reflection failure: Required Module fields not found in Utilities. Aborting sync.");
+                return;
+            }
+
+            Module[] allModules = Object.FindObjectsOfType<Module>(true);
+            if (allModules == null || allModules.Length == 0)
+            {
+                LateJoinEntry.Log.LogWarning("[LateJoinManager][Module Sync] Found 0 Module components. Skipping sync.");
+                return;
+            }
+
+            int syncedCount = 0;
+            int skippedCount = 0;
+
+            foreach (Module module in allModules)
+            {
+                if (module == null) // Basic null check for the module itself
+                {
+                    LateJoinEntry.Log.LogWarning($"[LateJoinManager][Module Sync] Encountered null module instance. Skipping.");
+                    skippedCount++;
+                    continue;
+                }
+
+                PhotonView? pv = Utilities.GetPhotonView(module);
+                if (pv == null)
+                {
+                    LateJoinEntry.Log.LogWarning($"[LateJoinManager][Module Sync] Module '{module.gameObject?.name ?? "NULL"}' is missing PhotonView. Skipping.");
+                    skippedCount++;
+                    continue;
+                }
+
+                try
+                {
+                    // --- Use Reflection to get module state ---
+                    bool setupDone = (bool)(Utilities.modSetupDoneField.GetValue(module) ?? false);
+
+                    if (!setupDone) // Skip modules that aren't fully set up on the host
+                    {
+                        LateJoinEntry.Log.LogDebug($"[LateJoinManager][Module Sync] Skipping module '{module.gameObject?.name ?? "NULL GameObject"}' (ViewID: {pv.ViewID}): Not SetupDone on host.");
+                        skippedCount++;
+                        continue;
+                    }
+
+                    // Get the connection state directly using reflection
+                    bool top = (bool)(Utilities.modConnectingTopField.GetValue(module) ?? false);
+                    bool bottom = (bool)(Utilities.modConnectingBottomField.GetValue(module) ?? false);
+                    bool right = (bool)(Utilities.modConnectingRightField.GetValue(module) ?? false);
+                    bool left = (bool)(Utilities.modConnectingLeftField.GetValue(module) ?? false);
+                    bool first = (bool)(Utilities.modFirstField.GetValue(module) ?? false);
+                    // ------------------------------------------
+
+                    LateJoinEntry.Log.LogDebug($"[LateJoinManager][Module Sync] Syncing module '{module.gameObject?.name ?? "NULL GameObject"}' (ViewID: {pv.ViewID}) state to {nick}: T={top}, B={bottom}, R={right}, L={left}, First={first}");
+
+                    // Send the existing RPC, but targeted only at the late joiner
+                    pv.RPC("ModuleConnectionSetRPC", targetPlayer, top, bottom, right, left, first);
+                    syncedCount++;
+                }
+                catch (Exception ex)
+                {
+                    LateJoinEntry.Log.LogError($"[LateJoinManager][Module Sync] Error processing or sending ModuleConnectionSetRPC for module '{module.gameObject?.name ?? "NULL"}' (ViewID: {pv.ViewID}) to {nick}: {ex}");
+                    skippedCount++; // Count as skipped on error
+                }
+            }
+
+            LateJoinEntry.Log.LogInfo($"[LateJoinManager][Module Sync] Finished Module connection sync for {nick}. Synced: {syncedCount}, Skipped: {skippedCount} (Out of {allModules.Length} total).");
+        }
+        #endregion // End NEW Module Sync Method
 
         #region Individual Sync Methods(Unchanged from previous version)
         private static void SyncLevelState(Player targetPlayer)

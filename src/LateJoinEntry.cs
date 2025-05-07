@@ -50,6 +50,14 @@ namespace L.A.T.E
 
             Log.LogInfo($"{PluginInfo.PLUGIN_NAME} v{PluginInfo.PLUGIN_VERSION} is loading…");
 
+            GameVersion detectedVersion = GameVersionSupport.DetectVersion();
+            Log.LogInfo($"Detected Game Version: {detectedVersion}");
+            if (detectedVersion == GameVersion.Unknown)
+            {
+                Log.LogError("Failed to determine game version. Mod features related to Steam lobby management might not work correctly.");
+                // Depending on how critical this is, you might want to disable the mod or parts of it.
+            }
+
             ConfigManager.Initialize(Config); // Load configuration.
 
             ApplyMonoModHooks();
@@ -107,6 +115,7 @@ namespace L.A.T.E
                 // Apply attribute-driven patches.
                 HarmonyInstance.PatchAll(typeof(Patches));
                 HarmonyInstance.PatchAll(typeof(NetworkConnect_Patches));
+                HarmonyInstance.PatchAll(typeof(TruckScreenText_ChatBoxState_EarlyLock_Patches));
 
                 // Apply explicit patches (with parameters and postfix options).
                 foreach (var (targetType, targetMethod, patchType, patchMethod, args, postfix) in _explicitHarmonyPatches)

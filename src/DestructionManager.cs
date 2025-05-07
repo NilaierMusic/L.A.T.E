@@ -76,7 +76,7 @@ namespace L.A.T.E
 
         #region Sync for Late-Joiners
 
-        public static void SyncBrokenHingesForPlayer(Player targetPlayer)
+        public static void SyncHingeStatesForPlayer(Player targetPlayer)
         {
             // Precondition checks.
             if (!Utilities.IsRealMasterClient())
@@ -107,70 +107,91 @@ namespace L.A.T.E
 
             string targetNickname = targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
             FieldInfo? brokenField = Utilities.pghBrokenField;
-            if (brokenField == null)
+            FieldInfo? closedField = Utilities.pghClosedField; // Get the cached field
+
+            if (brokenField == null || closedField == null) // Check both fields
             {
-                LateJoinEntry.Log.LogError("[DestructionManager] Reflection field 'broken' missing – cannot sync.");
+                LateJoinEntry.Log.LogError("[DestructionManager] Reflection field 'broken' or 'closed' missing – cannot sync hinge states.");
                 return;
             }
 
-            // Grab (or refresh) cached hinge objects.
             PhysGrabHinge[] cachedHinges = GetCachedHinges();
+            LateJoinEntry.Log.LogInfo($"[DestructionManager] Syncing ALL hinge states to {targetNickname} (Total hinges: {cachedHinges.Length}).");
 
-            LateJoinEntry.Log.LogInfo($"[DestructionManager] Syncing hinge state to {targetNickname} (Total hinges: {cachedHinges.Length}).");
-
-            int brokenHingeSyncCount = 0;
+            int brokenSyncCount = 0;
+            int openSyncCount = 0;
+            int closedSyncCount = 0; // Optional, for tracking
 
             foreach (PhysGrabHinge hinge in cachedHinges)
             {
-                if (hinge == null || hinge.gameObject == null)
-                {
-                    continue;
-                }
+                if (hinge == null || hinge.gameObject == null) continue;
 
                 PhotonView? pv = Utilities.GetPhotonView(hinge);
-                if (pv == null)
-                {
-                    continue;
-                }
+                if (pv == null) continue;
 
                 int viewID = pv.ViewID;
 
-                // Skip if the hinge is marked as destroyed.
+                // Skip fully destroyed objects tracked separately (if applicable, otherwise this check might be redundant)
                 if (_destroyedViewIDs.Contains(viewID))
                 {
-                    continue;
-                }
-
-                // Only process hinges that may be broken.
-                if (!_brokenHingeViewIDs.Contains(viewID))
-                {
+                    LateJoinEntry.Log.LogDebug($"[DestructionManager] Skipping hinge {viewID} sync: Marked as destroyed.");
                     continue;
                 }
 
                 bool brokenOnHost;
+                bool closedOnHost;
+
                 try
                 {
-                    brokenOnHost = (bool)brokenField.GetValue(hinge);
+                    // Get both states using reflection
+                    brokenOnHost = (bool)(brokenField.GetValue(hinge) ?? false);
+                    closedOnHost = (bool)(closedField.GetValue(hinge) ?? true); // Default to true (closed) if reflection fails? Safer.
                 }
                 catch (Exception ex)
                 {
-                    LateJoinEntry.Log.LogError($"[DestructionManager] Reflection failed for hinge {viewID}: {ex}");
+                    LateJoinEntry.Log.LogError($"[DestructionManager] Reflection failed getting state for hinge {viewID}: {ex}");
                     continue;
                 }
 
+                // --- Sync Logic ---
                 if (brokenOnHost)
                 {
+                    // If the host says it's broken, send the break RPC.
+                    // Also ensure it's marked in our tracking.
+                    if (_brokenHingeViewIDs.Add(viewID)) // Add if not already marked
+                    {
+                        LateJoinEntry.Log.LogDebug($"[DestructionManager] Marking hinge {viewID} as broken during sync.");
+                    }
+                    LateJoinEntry.Log.LogDebug($"[DestructionManager] Sending HingeBreakRPC for broken hinge {viewID} to {targetNickname}.");
                     pv.RPC("HingeBreakRPC", targetPlayer);
-                    brokenHingeSyncCount++;
+                    brokenSyncCount++;
                 }
-                else
+                else // Hinge is NOT broken on host
                 {
-                    // Clean up stale entry if host reports hinge isn't broken.
+                    // If it's marked as broken locally but host says it's not, remove the mark.
                     _brokenHingeViewIDs.Remove(viewID);
+
+                    // Now sync the open/closed state for non-broken hinges
+                    if (!closedOnHost) // Host says it's OPEN
+                    {
+                        LateJoinEntry.Log.LogDebug($"[DestructionManager] Sending OpenImpulseRPC for OPEN hinge {viewID} to {targetNickname}.");
+                        pv.RPC("OpenImpulseRPC", targetPlayer); // Tell the client to open it
+                        openSyncCount++;
+                    }
+                    else // Host says it's CLOSED
+                    {
+                        // Optional: Send CloseImpulseRPC for robustness?
+                        // The default state is usually closed, so this might be redundant unless
+                        // a door could somehow be open on the client by default.
+                        // Let's skip sending CloseImpulseRPC for now to avoid unnecessary RPCs,
+                        // unless testing shows it's needed.
+                        closedSyncCount++; // Just count it for logging
+                        LateJoinEntry.Log.LogDebug($"[DestructionManager] Hinge {viewID} is CLOSED on host, no RPC needed for {targetNickname}.");
+                    }
                 }
             }
 
-            LateJoinEntry.Log.LogInfo($"[DestructionManager] Sync to {targetNickname} finished – synced {brokenHingeSyncCount} broken hinges.");
+            LateJoinEntry.Log.LogInfo($"[DestructionManager] Hinge sync to {targetNickname} finished – Synced: {brokenSyncCount} Broken, {openSyncCount} Opened, {closedSyncCount} Confirmed Closed.");
         }
 
         #endregion

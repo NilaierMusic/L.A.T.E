@@ -285,6 +285,14 @@ namespace L.A.T.E
             "shoppingList"
         );
 
+        // Add these new fields for the Module class
+        public static readonly FieldInfo? modSetupDoneField = F(typeof(Module), "SetupDone");
+        public static readonly FieldInfo? modConnectingTopField = F(typeof(Module), "ConnectingTop");
+        public static readonly FieldInfo? modConnectingBottomField = F(typeof(Module), "ConnectingBottom");
+        public static readonly FieldInfo? modConnectingRightField = F(typeof(Module), "ConnectingRight");
+        public static readonly FieldInfo? modConnectingLeftField = F(typeof(Module), "ConnectingLeft");
+        public static readonly FieldInfo? modFirstField = F(typeof(Module), "First");
+
         // --- Arena Fields ---
         public static readonly FieldInfo? arenaWinnerPlayerField = F(typeof(Arena), "winnerPlayer");
 
@@ -293,6 +301,7 @@ namespace L.A.T.E
         private static bool _vpsFieldChecked = false;
 
         // Misc fields.
+        public static readonly FieldInfo? pghClosedField = F(typeof(PhysGrabHinge), "closed");
         public static readonly FieldInfo? pghBrokenField = F(typeof(PhysGrabHinge), "broken");
         public static readonly FieldInfo? pghJointField = F(typeof(PhysGrabHinge), "joint");
         public static readonly FieldInfo? tstCurrentPageIndexField = F(
@@ -320,6 +329,7 @@ namespace L.A.T.E
                 (epIsShopField, "ExtractionPoint.isShop"),
                 (smShoppingListField, "ShopManager.shoppingList"),
                 (rdExtractionPointSurplusField, "RoundDirector.extractionPointSurplus"),
+                (pghClosedField, "PhysGrabHinge.closed"),
                 (pghBrokenField, "PhysGrabHinge.broken"),
                 (pghJointField, "PhysGrabHinge.joint"),
                 (iaValueField, "ItemAttributes.value"),
@@ -339,6 +349,12 @@ namespace L.A.T.E
                 (pgoPhotonViewField, "PhysGrabObject.photonView"),
                 (rmGameOverField, "RunManager.gameOver"),
                 (rmpPhotonViewField, "RunManagerPUN.photonView"),
+                (modSetupDoneField, "Module.SetupDone"),
+                (modConnectingTopField, "Module.ConnectingTop"),
+                (modConnectingBottomField, "Module.ConnectingBottom"),
+                (modConnectingRightField, "Module.ConnectingRight"),
+                (modConnectingLeftField, "Module.ConnectingLeft"),
+                (modFirstField, "Module.First"),
                 (tstCurrentPageIndexField, "TruckScreenText.currentPageIndex"),
                 (paIsDisabledField, "PlayerAvatar.isDisabled"),
                 (paDeadSetField, "PlayerAvatar.deadSet"),

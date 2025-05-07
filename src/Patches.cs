@@ -2,8 +2,10 @@
 using Photon.Pun;
 using Photon.Realtime;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -20,6 +22,9 @@ namespace L.A.T.E
         private static bool _reloadHasBeenTriggeredThisScene = false;
 
         private static bool _shouldOpenLobbyAfterGen = false;
+
+        private static Coroutine? _lobbyUnlockFailsafeCoroutine;
+        private static bool _normalUnlockLogicExecuted = false;
 
         #endregion
 
@@ -63,7 +68,7 @@ namespace L.A.T.E
                         continue;
                     Utilities.ClearPhotonCache(photonView);
                 }
-                LateJoinEntry.Log.LogInfo("[Minimal Mod] Finished clearing scene object cache.");
+                LateJoinEntry.Log.LogInfo("[Clear Cache] Finished clearing scene object cache.");
             }
             catch (Exception ex)
             {
@@ -73,75 +78,83 @@ namespace L.A.T.E
 
         /// <summary>
         /// Determines if the lobby should allow players to join based on the current game state and configuration.
-        /// Includes an exception for expected Arena level failures.
+        /// NOTE: This should be called AFTER the level change has occurred (RunManager.levelCurrent reflects the NEW level).
         /// </summary>
-        private static bool ShouldAllowLobbyJoin(bool levelFailed)
+        private static bool ShouldAllowLobbyJoin(RunManager runManager, bool levelFailed) // Pass RunManager instance
         {
+            Level currentLevel = runManager.levelCurrent; // Get the level AFTER the change
+
             // --- Arena Exception Logic ---
+            // If the PREVIOUS level failed, the CURRENT level will be Arena.
             if (levelFailed)
             {
-                // Check the current level AFTER the level change has occurred.
-                if (SemiFunc.RunIsArena())
+                // Check if we actually landed in the Arena level
+                if (currentLevel == runManager.levelArena)
                 {
                     LateJoinEntry.Log.LogInfo(
-                        "[ShouldAllowLobbyJoin] Level failed, but current level IS Arena. Allowing join based on Arena config."
-                    );
+                       "[ShouldAllowLobbyJoin] Previous level failed, current level IS Arena. Allowing join based on Arena config."
+                   );
                     // Allow join ONLY if the Arena config setting is true.
                     return ConfigManager.AllowInArena.Value;
                 }
                 else
                 {
-                    // Level genuinely failed (and it's not the Arena). Disallow join.
+                    // This case shouldn't normally happen if failure leads to Arena, but acts as a safeguard.
                     LateJoinEntry.Log.LogInfo(
-                        "[ShouldAllowLobbyJoin] Level failed (and not Arena). Disallowing join."
-                    );
+                       $"[ShouldAllowLobbyJoin] Previous level failed, but current level is '{currentLevel?.name ?? "NULL"}', not Arena. Disallowing join."
+                   );
                     return false;
                 }
             }
             // --- End Arena Exception ---
 
-            // If level did NOT fail, proceed with normal config checks:
+            // If level did NOT fail, proceed with normal config checks based on the NEW level:
             LateJoinEntry.Log.LogDebug(
-                "[ShouldAllowLobbyJoin] Level did not fail. Checking specific level types based on config..."
+                $"[ShouldAllowLobbyJoin] Level did not fail. Checking config for current level '{currentLevel?.name ?? "NULL"}'..."
             );
 
-            if (SemiFunc.RunIsShop() && ConfigManager.AllowInShop.Value)
+            // Direct comparisons using RunManager level references
+            if (currentLevel == runManager.levelShop && ConfigManager.AllowInShop.Value)
             {
                 LateJoinEntry.Log.LogDebug(
                     "[ShouldAllowLobbyJoin] Allowing join: In Shop & Config allows."
                 );
                 return true;
             }
-            if (SemiFunc.RunIsLobby() && ConfigManager.AllowInTruck.Value) // Truck/Lobby
+            if (currentLevel == runManager.levelLobby && ConfigManager.AllowInTruck.Value) // Truck/Lobby
             {
                 LateJoinEntry.Log.LogDebug(
                     "[ShouldAllowLobbyJoin] Allowing join: In Truck/Lobby & Config allows."
                 );
                 return true;
             }
-            if (SemiFunc.RunIsLevel() && ConfigManager.AllowInLevel.Value) // Normal gameplay levels
-            {
-                LateJoinEntry.Log.LogDebug(
-                    "[ShouldAllowLobbyJoin] Allowing join: In Level & Config allows."
-                );
-                return true;
-            }
-            // This check still works for Arena if levelFailed was initially false (unlikely but safe)
-            if (SemiFunc.RunIsArena() && ConfigManager.AllowInArena.Value)
+            if (currentLevel == runManager.levelArena && ConfigManager.AllowInArena.Value) // Handles non-failure case for Arena
             {
                 LateJoinEntry.Log.LogDebug(
                     "[ShouldAllowLobbyJoin] Allowing join: In Arena & Config allows."
                 );
                 return true;
             }
-            if (SemiFunc.RunIsLobbyMenu()) // Always allow in the pre-game lobby menu
+            if (currentLevel == runManager.levelLobbyMenu) // Always allow in the pre-game lobby menu
             {
                 LateJoinEntry.Log.LogDebug("[ShouldAllowLobbyJoin] Allowing join: In LobbyMenu.");
                 return true;
             }
 
+            // Check if it's a "normal" run level by seeing if it's in the RunManager's list of levels
+            // Exclude null check for safety, although list shouldn't contain nulls.
+            if (currentLevel != null && runManager.levels.Contains(currentLevel) && ConfigManager.AllowInLevel.Value)
+            {
+                LateJoinEntry.Log.LogDebug(
+                   "[ShouldAllowLobbyJoin] Allowing join: In a standard Level & Config allows."
+               );
+                return true;
+            }
+
+
+            // Default: Disallow join if no specific rule allows it
             LateJoinEntry.Log.LogDebug(
-                "[ShouldAllowLobbyJoin] No applicable allow condition met. Disallowing join."
+                $"[ShouldAllowLobbyJoin] No applicable allow condition met for level '{currentLevel?.name ?? "NULL"}'. Disallowing join."
             );
             return false;
         }
@@ -249,27 +262,28 @@ namespace L.A.T.E
                 {
                     PhotonNetwork.CurrentRoom.IsOpen = true;
                 }
-                if (SteamManager.instance != null)
+                // --- Use Helper ---
+                GameVersionSupport.UnlockSteamLobby(true); // Unlock (make public for beta)
+                // ---------------
+                _shouldOpenLobbyAfterGen = false; // Ensure this is false
+
+                // Disarm failsafe if mod logic becomes inactive
+                if (_lobbyUnlockFailsafeCoroutine != null && LateJoinEntry.CoroutineRunner != null)
                 {
-                    SteamManager.instance.UnlockLobby();
+                    LateJoinEntry.CoroutineRunner.StopCoroutine(_lobbyUnlockFailsafeCoroutine);
+                    _lobbyUnlockFailsafeCoroutine = null;
+                    LateJoinEntry.Log.LogDebug("[L.A.T.E. Failsafe] Mod logic inactive. Disarmed any existing failsafe.");
                 }
-                _shouldOpenLobbyAfterGen = false; // Ensure flag is false
-                return; // Stop further L.A.T.E-specific logic
             }
             else
             {
-                // Mod logic IS active in the new scene. Decide if joining should be allowed eventually.
-                // Pass the original levelFailed flag; ShouldAllowLobbyJoin handles the Arena exception internally.
-                bool allowJoinEventually = ShouldAllowLobbyJoin(levelFailed);
-
-                // Store the intention in the flag
+                bool allowJoinEventually = ShouldAllowLobbyJoin(self, levelFailed);
                 _shouldOpenLobbyAfterGen = allowJoinEventually;
+
                 LateJoinEntry.Log.LogInfo(
                     $"[MOD Resync] Mod logic ACTIVE for new level. Lobby should open after gen: {_shouldOpenLobbyAfterGen} (Based on ShouldAllowLobbyJoin result: {allowJoinEventually})"
                 );
 
-                // CRITICAL: Keep the lobby CLOSED for now, regardless of the flag.
-                // The GenerateDone postfix will handle opening it if _shouldOpenLobbyAfterGen is true.
                 LateJoinEntry.Log.LogInfo(
                     "[MOD Resync] Closing/locking lobby TEMPORARILY until level generation completes."
                 );
@@ -277,18 +291,37 @@ namespace L.A.T.E
                 {
                     PhotonNetwork.CurrentRoom.IsOpen = false;
                 }
-                if (SteamManager.instance != null)
+                GameVersionSupport.LockSteamLobby();
+                _normalUnlockLogicExecuted = false; // Reset for this level change cycle
+
+                // ---- START FAILSAVE ----
+                if (LateJoinEntry.CoroutineRunner != null)
                 {
-                    SteamManager.instance.LockLobby();
+                    // Stop any previous failsafe coroutine
+                    if (_lobbyUnlockFailsafeCoroutine != null)
+                    {
+                        LateJoinEntry.CoroutineRunner.StopCoroutine(_lobbyUnlockFailsafeCoroutine);
+                        LateJoinEntry.Log.LogDebug("[L.A.T.E. Failsafe] Stopped previous failsafe coroutine.");
+                    }
+
+                    if (_shouldOpenLobbyAfterGen) // Only arm failsafe if we intend to open it
+                    {
+                        _lobbyUnlockFailsafeCoroutine = LateJoinEntry.CoroutineRunner.StartCoroutine(LobbyUnlockFailsafeCoroutine());
+                        // Log for arming is inside the coroutine itself
+                    }
+                    else
+                    {
+                        _lobbyUnlockFailsafeCoroutine = null; // Ensure it's null if we don't intend to open
+                        LateJoinEntry.Log.LogDebug("[L.A.T.E. Failsafe] Intentionally keeping lobby closed. Failsafe not armed.");
+                    }
                 }
                 else
                 {
-                    LateJoinEntry.Log.LogWarning(
-                        "SteamManager instance is null when attempting temporary lock post-level change."
-                    );
+                    LateJoinEntry.Log.LogError("[L.A.T.E. Failsafe] Cannot manage failsafe: CoroutineRunner is null!");
+                    _lobbyUnlockFailsafeCoroutine = null;
                 }
+                // ---- END FAILSAVE ----
             }
-
             #endregion
         }
 
@@ -299,7 +332,7 @@ namespace L.A.T.E
         /// <summary>
         /// Harmony Postfix for GameDirector.SetStart.
         /// Runs on the HOST after the game state is officially set to Start for the level.
-        /// This serves as the final point to unlock the lobby if needed, replacing the LevelGenerator.GenerateDone hook.
+        /// This serves as the final point to unlock the lobby if needed, and disarms the failsafe.
         /// </summary>
         [HarmonyPatch(typeof(GameDirector), nameof(GameDirector.SetStart))]
         [HarmonyPostfix]
@@ -311,12 +344,17 @@ namespace L.A.T.E
                 return;
             }
 
+            // If L.A.T.E. mod logic is inactive for this scene, our lobby management shouldn't run.
+            // The lobby state should have been handled immediately during RunManager_ChangeLevelHook.
+            // We also don't want to interfere with any failsafe if it was (incorrectly) armed.
             if (!Utilities.IsModLogicActive())
             {
                 LateJoinEntry.Log.LogDebug(
-                    "[GameDirector.SetStart Postfix] Mod logic is inactive for this scene. No lobby action needed here."
+                    "[GameDirector.SetStart Postfix] Mod logic is inactive for this scene. No lobby action needed here by L.A.T.E."
                 );
-                // If mod logic isn't active, the lobby should have been opened immediately during level change.
+                // It's important NOT to set _normalUnlockLogicExecuted or stop the failsafe here,
+                // as those are tied to L.A.T.E.'s active management cycle which isn't happening.
+                // The RunManager_ChangeLevelHook should have already disarmed any failsafe if logic became inactive.
                 return;
             }
 
@@ -347,21 +385,23 @@ namespace L.A.T.E
                 }
 
                 // Unlock Steam Lobby
-                if (SteamManager.instance != null)
+                GameVersionSupport.UnlockSteamLobby(true);
+                LateJoinEntry.Log.LogDebug(
+                    "[GameDirector.SetStart Postfix] Steam lobby unlock attempted."
+                );
+
+                _normalUnlockLogicExecuted = true; // Signal that this "open" path was successful
+                LateJoinEntry.Log.LogInfo("[L.A.T.E.] Normal lobby 'open' sequence completed successfully.");
+
+                // Disarm the failsafe as it's no longer needed
+                if (_lobbyUnlockFailsafeCoroutine != null && LateJoinEntry.CoroutineRunner != null)
                 {
-                    SteamManager.instance.UnlockLobby();
-                    LateJoinEntry.Log.LogDebug(
-                        "[GameDirector.SetStart Postfix] Steam lobby unlocked."
-                    );
-                }
-                else
-                {
-                    LateJoinEntry.Log.LogWarning(
-                        "[GameDirector.SetStart Postfix] Cannot unlock Steam lobby: SteamManager instance is null."
-                    );
+                    LateJoinEntry.CoroutineRunner.StopCoroutine(_lobbyUnlockFailsafeCoroutine);
+                    _lobbyUnlockFailsafeCoroutine = null;
+                    LateJoinEntry.Log.LogDebug("[L.A.T.E. Failsafe] Disarmed by successful normal 'open' logic.");
                 }
             }
-            else
+            else // _shouldOpenLobbyAfterGen was FALSE (meaning we intended to keep it locked)
             {
                 LateJoinEntry.Log.LogInfo(
                     "[GameDirector.SetStart Postfix] Flag is FALSE. Lobby remains closed/locked as per initial decision during level change."
@@ -371,33 +411,37 @@ namespace L.A.T.E
                 if (
                     PhotonNetwork.InRoom
                     && PhotonNetwork.CurrentRoom != null
-                    && PhotonNetwork.CurrentRoom.IsOpen
+                    && PhotonNetwork.CurrentRoom.IsOpen // Only act if it's unexpectedly open
                 )
                 {
                     LateJoinEntry.Log.LogWarning(
-                        "[GameDirector.SetStart Postfix] Sanity Check: Photon room was open despite flag being false. Closing."
+                        "[GameDirector.SetStart Postfix] Sanity Check: Photon room was open despite L.A.T.E. intending it to be closed. Closing."
                     );
                     PhotonNetwork.CurrentRoom.IsOpen = false;
                 }
 
                 // Sanity Check: Ensure Steam lobby is locked if flag is false by re-applying LockLobby
-                if (SteamManager.instance != null)
+                GameVersionSupport.LockSteamLobby();
+                LateJoinEntry.Log.LogDebug(
+                   "[GameDirector.SetStart Postfix] Sanity Check: Steam lobby lock (re)attempted as L.A.T.E. intended it to be closed."
+               );
+
+                _normalUnlockLogicExecuted = true; // Signal that this "keep closed" path was successful
+                                                   // This is important so the failsafe (which shouldn't have been armed if _shouldOpenLobbyAfterGen was false,
+                                                   // but as a precaution) knows that L.A.T.E. made a conscious decision.
+                LateJoinEntry.Log.LogInfo("[L.A.T.E.] Normal lobby 'keep closed' sequence completed.");
+
+                // Disarm the failsafe (it shouldn't be running if _shouldOpenLobbyAfterGen was false, but good practice to be sure)
+                if (_lobbyUnlockFailsafeCoroutine != null && LateJoinEntry.CoroutineRunner != null)
                 {
-                    LateJoinEntry.Log.LogDebug(
-                        "[GameDirector.SetStart Postfix] Sanity Check: Re-applying Steam lobby lock."
-                    );
-                    SteamManager.instance.LockLobby();
-                }
-                else
-                {
-                    LateJoinEntry.Log.LogWarning(
-                        "[GameDirector.SetStart Postfix] Sanity Check: Cannot lock Steam lobby - SteamManager instance is null."
-                    );
+                    LateJoinEntry.CoroutineRunner.StopCoroutine(_lobbyUnlockFailsafeCoroutine);
+                    _lobbyUnlockFailsafeCoroutine = null;
+                    LateJoinEntry.Log.LogDebug("[L.A.T.E. Failsafe] Disarmed by successful normal 'keep closed' logic (failsafe should not have been active).");
                 }
             }
 
-            // CRITICAL: Reset the flag regardless of whether we opened the lobby or not.
-            // Its purpose is served once SetStart is called.
+            // CRITICAL: Reset the _shouldOpenLobbyAfterGen flag regardless of whether we opened the lobby or not.
+            // This prepares it for the next level change.
             _shouldOpenLobbyAfterGen = false;
             LateJoinEntry.Log.LogDebug(
                 $"[GameDirector.SetStart Postfix] Resetting _shouldOpenLobbyAfterGen flag to false."
@@ -405,6 +449,59 @@ namespace L.A.T.E
         }
 
         #endregion
+
+        /// <summary>
+        /// Failsafe coroutine to unlock the lobby if the normal unlock mechanism fails.
+        /// </summary>
+        private static IEnumerator LobbyUnlockFailsafeCoroutine()
+        {
+            const float failsafeDelaySeconds = 30f; // Configurable? For now, 30 seconds.
+            LateJoinEntry.Log.LogInfo($"[L.A.T.E. Failsafe] Armed. Will check lobby state in {failsafeDelaySeconds} seconds if normal unlock doesn't occur.");
+
+            yield return new WaitForSeconds(failsafeDelaySeconds);
+
+            LateJoinEntry.Log.LogInfo("[L.A.T.E. Failsafe] Timer elapsed. Checking lobby state.");
+
+            // Check if the normal unlock logic already ran and was successful
+            if (_normalUnlockLogicExecuted)
+            {
+                LateJoinEntry.Log.LogInfo("[L.A.T.E. Failsafe] Normal unlock logic was executed. Failsafe action not needed.");
+                _lobbyUnlockFailsafeCoroutine = null;
+                yield break;
+            }
+
+            // Check if we are still the host and in a room
+            if (!Utilities.IsRealMasterClient() || !PhotonNetwork.InRoom || PhotonNetwork.CurrentRoom == null)
+            {
+                LateJoinEntry.Log.LogWarning("[L.A.T.E. Failsafe] Conditions not met for failsafe unlock (not host, not in room, or room is null). Aborting.");
+                _lobbyUnlockFailsafeCoroutine = null;
+                yield break;
+            }
+
+            // The failsafe was only started if _shouldOpenLobbyAfterGen was true.
+            // So, if we reach here and the lobby is still locked, it means something went wrong.
+            bool photonRoomIsStillClosed = !PhotonNetwork.CurrentRoom.IsOpen;
+            // We assume the Steam lobby is also still locked if our Photon room is.
+
+            if (photonRoomIsStillClosed)
+            {
+                LateJoinEntry.Log.LogWarning("[L.A.T.E. Failsafe] Detected lobby is STILL LOCKED after timeout and normal unlock logic did not execute. Forcing unlock.");
+
+                // Force unlock Photon Room
+                PhotonNetwork.CurrentRoom.IsOpen = true;
+                LateJoinEntry.Log.LogInfo("[L.A.T.E. Failsafe] Photon Room IsOpen set to true (FORCED).");
+
+                // Force unlock Steam Lobby (make it public as per original intention)
+                GameVersionSupport.UnlockSteamLobby(true);
+                LateJoinEntry.Log.LogInfo("[L.A.T.E. Failsafe] Steam lobby unlock attempted (FORCED).");
+            }
+            else
+            {
+                LateJoinEntry.Log.LogInfo("[L.A.T.E. Failsafe] Lobby was found to be already open. No forced action taken.");
+            }
+
+            _lobbyUnlockFailsafeCoroutine = null; // Mark coroutine as finished
+        }
 
         #region Photon Object Patches
 
@@ -743,7 +840,7 @@ namespace L.A.T.E
                             }
                         }
                         LateJoinEntry.Log.LogDebug(
-                            $"[Minimal Mod] Invoking original Spawn for {assignedPlayerName} (ViewID {viewID}) at position {finalPosition} (Default logic, Overridden: {positionOverriddenByMod})"
+                            $"[Spawn Fix] Invoking original Spawn for {assignedPlayerName} (ViewID {viewID}) at position {finalPosition} (Default logic, Overridden: {positionOverriddenByMod})"
                         );
                         orig.Invoke(self, finalPosition, finalRotation);
                     }
@@ -775,7 +872,7 @@ namespace L.A.T.E
             else if (positionOverriddenByMod)
             {
                 LateJoinEntry.Log.LogDebug(
-                    $"[Minimal Mod] Invoking original Spawn for {joiningPlayer.NickName} (ViewID {viewID}) at position {finalPosition} (Last known position)"
+                    $"[Spawn Fix] Invoking original Spawn for {joiningPlayer.NickName} (ViewID {viewID}) at position {finalPosition} (Last known position)"
                 );
                 orig.Invoke(self, finalPosition, finalRotation);
             }
@@ -808,7 +905,7 @@ namespace L.A.T.E
             if (PhotonNetwork.IsMasterClient)
             {
                 LateJoinEntry.Log.LogDebug(
-                    $"[Minimal Mod] PlayerAvatar Start: Sending LoadingLevelAnimationCompletedRPC for ViewID {pv.ViewID}"
+                    $"[Late Join] PlayerAvatar Start: Sending LoadingLevelAnimationCompletedRPC for ViewID {pv.ViewID}"
                 );
                 pv.RPC("LoadingLevelAnimationCompletedRPC", RpcTarget.AllBuffered);
             }
@@ -985,7 +1082,7 @@ namespace L.A.T.E
 
         /// <summary>
         /// Harmony Prefix for PlayerAvatar.LoadingLevelAnimationCompletedRPC.
-        /// HOST-SIDE ONLY: This is our NEW primary trigger for syncing late-joiner state.
+        /// HOST-SIDE ONLY: This is our primary trigger for syncing late-joiner state.
         /// When the host receives this RPC from a client who was marked as needing sync,
         /// it indicates the client is ready for state synchronization.
         /// </summary>
@@ -1256,6 +1353,117 @@ namespace L.A.T.E
         }
 
         #endregion
+    }
+
+    public static class EarlyLobbyLockHelper
+    {
+        public static void TryLockLobby(string reason)
+        {
+            if (!Utilities.IsRealMasterClient()) return;
+
+            // Check if a level change is already in progress to avoid redundant locks
+            // or conflicts if RunManager.ChangeLevel is already doing its thing.
+            // This might require a new static flag in your mod if RunManager's internal
+            // state isn't easily accessible or reliable for this check.
+            // For now, we'll assume the call to this helper is the *first* indication.
+
+            LateJoinEntry.Log.LogInfo($"[L.A.T.E.] [Early Lock] Host is about to change level (Trigger: {reason}). Locking lobby NOW.");
+            if (PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null)
+            {
+                if (PhotonNetwork.CurrentRoom.IsOpen) // Only log if it was open
+                {
+                    PhotonNetwork.CurrentRoom.IsOpen = false;
+                    LateJoinEntry.Log.LogDebug("[Early Lock] Photon Room IsOpen set to false.");
+                }
+            }
+            GameVersionSupport.LockSteamLobby(); // This helper should handle Steam lobby visibility
+        }
+    }
+
+    [HarmonyPatch]
+    public static class TruckScreenText_ChatBoxState_EarlyLock_Patches // Keep the same class name
+    {
+        // Cache the reflection FieldInfo for efficiency and error checking
+        private static FieldInfo? _tstPlayerChatBoxStateStartField;
+
+        // Helper method to get/cache the FieldInfo
+        private static FieldInfo? GetPlayerChatBoxStateStartField()
+        {
+            if (_tstPlayerChatBoxStateStartField == null)
+            {
+                _tstPlayerChatBoxStateStartField = AccessTools.Field(typeof(TruckScreenText), "playerChatBoxStateStart");
+                if (_tstPlayerChatBoxStateStartField == null)
+                {
+                    // Log error if reflection fails - this is critical for the patch
+                    LateJoinEntry.Log?.LogError("[Reflection Error] Failed to find private field 'TruckScreenText.playerChatBoxStateStart'. Early lock patch will not function correctly.");
+                }
+            }
+            return _tstPlayerChatBoxStateStartField;
+        }
+
+        // --- Patch for PlayerChatBoxStateLockedDestroySlackers ---
+        [HarmonyPatch(typeof(TruckScreenText), "PlayerChatBoxStateLockedDestroySlackers")]
+        [HarmonyPrefix] // ***** CHANGED TO PREFIX *****
+        static bool Prefix_PlayerChatBoxStateLockedDestroySlackers(TruckScreenText __instance) // Now returns bool, takes __instance
+        {
+            // Only run lock logic on the host
+            if (Utilities.IsRealMasterClient())
+            {
+                FieldInfo? startFlagField = GetPlayerChatBoxStateStartField();
+                if (startFlagField != null) // Check if reflection succeeded
+                {
+                    try
+                    {
+                        // Read the value of the flag *before* the original method potentially changes it
+                        bool isStateStarting = (bool)(startFlagField.GetValue(__instance) ?? false);
+
+                        if (isStateStarting)
+                        {
+                            // The original method's 'if (playerChatBoxStateStart)' block is about to execute
+                            // This is the single time we want to lock the lobby for this state transition.
+                            EarlyLobbyLockHelper.TryLockLobby("TruckScreenText.PlayerChatBoxStateLockedDestroySlackers (State Enter)");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LateJoinEntry.Log?.LogError($"[Early Lock Prefix - DestroySlackers] Error accessing playerChatBoxStateStart: {ex}");
+                    }
+                }
+            }
+            return true; // ***** IMPORTANT: Always return true to let the original method execute *****
+        }
+
+        // --- Patch for PlayerChatBoxStateLockedStartingTruck ---
+        [HarmonyPatch(typeof(TruckScreenText), "PlayerChatBoxStateLockedStartingTruck")]
+        [HarmonyPrefix] // ***** CHANGED TO PREFIX *****
+        static bool Prefix_PlayerChatBoxStateLockedStartingTruck(TruckScreenText __instance) // Now returns bool, takes __instance
+        {
+            // Only run lock logic on the host
+            if (Utilities.IsRealMasterClient())
+            {
+                FieldInfo? startFlagField = GetPlayerChatBoxStateStartField();
+                if (startFlagField != null) // Check if reflection succeeded
+                {
+                    try
+                    {
+                        // Read the value of the flag *before* the original method potentially changes it
+                        bool isStateStarting = (bool)(startFlagField.GetValue(__instance) ?? false);
+
+                        if (isStateStarting)
+                        {
+                            // The original method's 'if (playerChatBoxStateStart)' block is about to execute
+                            // This is the single time we want to lock the lobby for this state transition.
+                            EarlyLobbyLockHelper.TryLockLobby("TruckScreenText.PlayerChatBoxStateLockedStartingTruck (State Enter)");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LateJoinEntry.Log?.LogError($"[Early Lock Prefix - StartingTruck] Error accessing playerChatBoxStateStart: {ex}");
+                    }
+                }
+            }
+            return true; // ***** IMPORTANT: Always return true to let the original method execute *****
+        }
     }
 
     [HarmonyPatch]
