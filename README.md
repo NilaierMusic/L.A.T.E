@@ -107,10 +107,8 @@ You can edit this file directly using a text editor, **OR** you can use an in-ga
   * e.g. [`FastStartup`](https://thunderstore.io/c/repo/p/Kesomannen/FastStartup/)
   * Skipping essential menu and lobby steps can interfere with L.A.T.E.'s initialization and synchronization logic.
 * **Mods Hooking into Level Generation or Completion with Potential Conflicts**
-  * e.g. [`BerserkerEnemies`](https://thunderstore.io/c/repo/p/FNKT_Labs/BerserkerEnemies/)
-    * This mod also hooks into `GenerateDone` and may cause silent NullReferenceExceptions (NREs), preventing L.A.T.E.'s necessary postfix operations from executing.
   * e.g. [`Imperium_Repo`](https://thunderstore.io/c/repo/p/giosuel/Imperium_Repo/)
-    * This mod patches `LoadingLevelAnimationCompleted`, which can lead to conflicts and result in parts of Imperium's functionality not working correctly alongside L.A.T.E.
+    * This mod patches `LevelAnimationComplete`, which can lead to conflicts and result in parts of Imperium's functionality not working correctly alongside L.A.T.E.
     * _Note: While L.A.T.E. has a fail-safe to prevent permanent lobby locking in such scenarios, underlying issues within these mods may still persist._
 
 

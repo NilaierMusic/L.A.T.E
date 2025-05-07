@@ -80,37 +80,49 @@ namespace L.A.T.E
         /// Determines if the lobby should allow players to join based on the current game state and configuration.
         /// NOTE: This should be called AFTER the level change has occurred (RunManager.levelCurrent reflects the NEW level).
         /// </summary>
-        private static bool ShouldAllowLobbyJoin(RunManager runManager, bool levelFailed) // Pass RunManager instance
+        private static bool ShouldAllowLobbyJoin(RunManager runManager, bool levelFailed)
         {
             Level currentLevel = runManager.levelCurrent; // Get the level AFTER the change
 
-            // --- Arena Exception Logic ---
-            // If the PREVIOUS level failed, the CURRENT level will be Arena.
-            if (levelFailed)
+            // --- Arena Exception Logic (Handles true failures leading to Arena) ---
+            if (levelFailed && currentLevel == runManager.levelArena)
             {
-                // Check if we actually landed in the Arena level
-                if (currentLevel == runManager.levelArena)
-                {
-                    LateJoinEntry.Log.LogInfo(
-                       "[ShouldAllowLobbyJoin] Previous level failed, current level IS Arena. Allowing join based on Arena config."
-                   );
-                    // Allow join ONLY if the Arena config setting is true.
-                    return ConfigManager.AllowInArena.Value;
-                }
-                else
-                {
-                    // This case shouldn't normally happen if failure leads to Arena, but acts as a safeguard.
-                    LateJoinEntry.Log.LogInfo(
-                       $"[ShouldAllowLobbyJoin] Previous level failed, but current level is '{currentLevel?.name ?? "NULL"}', not Arena. Disallowing join."
-                   );
-                    return false;
-                }
+                LateJoinEntry.Log.LogInfo(
+                   "[ShouldAllowLobbyJoin] Previous level failed, current level IS Arena. Allowing join based on Arena config."
+               );
+                // Allow join ONLY if the Arena config setting is true.
+                return ConfigManager.AllowInArena.Value;
             }
             // --- End Arena Exception ---
 
-            // If level did NOT fail, proceed with normal config checks based on the NEW level:
+            // --- Handle Non-Arena Failures with Config Option ---
+            // This block executes if levelFailed is true BUT we didn't go to Arena (e.g., modded level "failed" but game continues)
+            if (levelFailed && currentLevel != runManager.levelArena) // Explicitly check not Arena here
+            {
+                if (!ConfigManager.LockLobbyOnLevelGenerationFailure.Value) // Check the new config option
+                {
+                    LateJoinEntry.Log.LogInfo(
+                       $"[ShouldAllowLobbyJoin] Level reported failure (current: '{currentLevel?.name ?? "NULL"}', not Arena), but 'LockLobbyOnLevelGenerationFailure' is FALSE. " +
+                       "Proceeding to check scene-specific join rules as if no failure occurred."
+                   );
+                    // By not returning false here, we fall through to the normal scene checks below.
+                }
+                else // Config says TO lock on failure (default behavior)
+                {
+                    LateJoinEntry.Log.LogInfo(
+                       $"[ShouldAllowLobbyJoin] Level reported failure (current: '{currentLevel?.name ?? "NULL"}', not Arena) and 'LockLobbyOnLevelGenerationFailure' is TRUE. Disallowing join."
+                   );
+                    return false; // Disallow join
+                }
+            }
+            // --- End Non-Arena Failures ---
+
+
+            // If level did NOT fail (levelFailed was initially false)
+            // OR if levelFailed was true but LockLobbyOnLevelGenerationFailure is false (and not Arena),
+            // proceed with normal config checks based on the NEW level:
             LateJoinEntry.Log.LogDebug(
-                $"[ShouldAllowLobbyJoin] Level did not fail. Checking config for current level '{currentLevel?.name ?? "NULL"}'..."
+                $"[ShouldAllowLobbyJoin] Evaluating scene-specific join rules for current level '{currentLevel?.name ?? "NULL"}' (levelFailed considered as per config: {levelFailed && (currentLevel == runManager.levelArena || ConfigManager.LockLobbyOnLevelGenerationFailure.Value)})."
             );
 
             // Direct comparisons using RunManager level references
@@ -128,7 +140,8 @@ namespace L.A.T.E
                 );
                 return true;
             }
-            if (currentLevel == runManager.levelArena && ConfigManager.AllowInArena.Value) // Handles non-failure case for Arena
+            // This now correctly handles non-failure case for Arena, OR if failure occurred but config allows proceeding
+            if (currentLevel == runManager.levelArena && ConfigManager.AllowInArena.Value)
             {
                 LateJoinEntry.Log.LogDebug(
                     "[ShouldAllowLobbyJoin] Allowing join: In Arena & Config allows."
@@ -142,7 +155,6 @@ namespace L.A.T.E
             }
 
             // Check if it's a "normal" run level by seeing if it's in the RunManager's list of levels
-            // Exclude null check for safety, although list shouldn't contain nulls.
             if (currentLevel != null && runManager.levels.Contains(currentLevel) && ConfigManager.AllowInLevel.Value)
             {
                 LateJoinEntry.Log.LogDebug(
@@ -150,7 +162,6 @@ namespace L.A.T.E
                );
                 return true;
             }
-
 
             // Default: Disallow join if no specific rule allows it
             LateJoinEntry.Log.LogDebug(
@@ -334,6 +345,7 @@ namespace L.A.T.E
         /// Runs on the HOST after the game state is officially set to Start for the level.
         /// This serves as the final point to unlock the lobby if needed, and disarms the failsafe.
         /// </summary>
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPatch(typeof(GameDirector), nameof(GameDirector.SetStart))]
         [HarmonyPostfix]
         static void GameDirector_SetStart_Postfix(GameDirector __instance)
@@ -1086,6 +1098,7 @@ namespace L.A.T.E
         /// When the host receives this RPC from a client who was marked as needing sync,
         /// it indicates the client is ready for state synchronization.
         /// </summary>
+        [HarmonyPriority(Priority.Last)]
         [HarmonyPatch(typeof(PlayerAvatar), nameof(PlayerAvatar.LoadingLevelAnimationCompletedRPC))]
         [HarmonyPrefix]
         static bool PlayerAvatar_LoadingLevelAnimationCompletedRPC_Prefix(PlayerAvatar __instance)

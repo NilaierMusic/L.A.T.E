@@ -26,6 +26,7 @@ namespace L.A.T.E
         // Late-Join Behavior
         internal static ConfigEntry<bool> KillIfPreviouslyDead { get; private set; } = null!;
         internal static ConfigEntry<bool> SpawnAtLastPosition { get; private set; } = null!;
+        internal static ConfigEntry<bool> LockLobbyOnLevelGenerationFailure { get; private set; } = null!;
 
         // Advanced Options
         internal static ConfigEntry<bool> ForceReloadOnLateJoin { get; private set; } = null!;
@@ -59,6 +60,12 @@ namespace L.A.T.E
             // Late-Join Behavior
             KillIfPreviouslyDead = Bind(cfg, SectionLateJoinBehavior, "Kill If Previously Dead", true, "Automatically kill late-joining players who already died in the same level.");
             SpawnAtLastPosition = Bind(cfg, SectionLateJoinBehavior, "Spawn At Last Position", true, "Spawn re-joining players at their last known position (or death head).");
+            LockLobbyOnLevelGenerationFailure = Bind(cfg, SectionLateJoinBehavior, "Lock Lobby On Level Generation Failure", true,
+                "Controls if the lobby is automatically locked if a level (especially modded) reports a generation failure.\n" +
+                "Vanilla levels rarely fail, but modded ones might sometimes report failure even if they load.\n" +
+                "Set to 'false' to keep the lobby open based on scene type, even on reported failure (unless it's a real crash to Arena).\n" +
+                "Default: true (locks lobby on non-Arena failure).");
+
 
             // Advanced
             ForceReloadOnLateJoin = Bind(cfg, SectionAdvanced, "Force Level Reload on Late Join", false, "!! HIGHLY DISRUPTIVE !! Forces the host to reload the level for EVERYONE when a player joins late.");
