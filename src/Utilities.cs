@@ -8,7 +8,7 @@ using UnityEngine;
 using Hashtable = ExitGames.Client.Photon.Hashtable;
 using Object = UnityEngine.Object;
 
-namespace L.A.T.E
+namespace LATE
 {
     /// <summary>
     /// Caches FieldInfo / MethodInfo handles that are accessed frequently via reflection.

@@ -5,7 +5,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace L.A.T.E
+namespace LATE
 {
     /// <summary>
     /// Manages voice chat synchronization, particularly for players joining late

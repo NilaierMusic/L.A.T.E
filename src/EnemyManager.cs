@@ -6,7 +6,7 @@ using System.Reflection;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-namespace L.A.T.E
+namespace LATE
 {
     /// <summary>Handles enemy <-> player bookkeeping for late-join & leave events.</summary>
     internal static class EnemyManager

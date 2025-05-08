@@ -6,7 +6,7 @@ using Photon.Realtime;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-namespace L.A.T.E
+namespace LATE
 {
     internal static class DestructionManager
     {

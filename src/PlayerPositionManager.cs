@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 using Photon.Realtime;
 using UnityEngine;
 
-namespace L.A.T.E
+namespace LATE
 {
     /// <summary>
     /// Immutable package with a player's last known transform.

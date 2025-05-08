@@ -9,7 +9,7 @@ using System.Reflection;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-namespace L.A.T.E
+namespace LATE
 {
     /// <summary>
     /// Manages the state and synchronization process for players who join after a

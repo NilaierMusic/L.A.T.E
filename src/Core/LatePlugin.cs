@@ -8,7 +8,7 @@ using MonoMod.RuntimeDetour;
 using Photon.Realtime;
 using UnityEngine;
 
-namespace L.A.T.E
+namespace LATE.Core
 {
     [BepInPlugin(PluginInfo.PLUGIN_GUID, PluginInfo.PLUGIN_NAME, PluginInfo.PLUGIN_VERSION)]
     internal sealed class LateJoinEntry : BaseUnityPlugin

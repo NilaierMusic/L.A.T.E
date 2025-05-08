@@ -3,7 +3,7 @@ using System.Reflection;
 using BepInEx.Logging;
 using HarmonyLib;
 
-namespace L.A.T.E
+namespace LATE
 {
     internal enum GameVersion
     {

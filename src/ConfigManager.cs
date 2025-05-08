@@ -2,7 +2,7 @@
 using BepInEx.Logging;
 using System.Reflection;
 
-namespace L.A.T.E
+namespace LATE
 {
     internal static class ConfigManager
     {

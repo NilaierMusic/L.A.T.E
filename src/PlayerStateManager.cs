@@ -2,7 +2,7 @@
 using System.Runtime.CompilerServices;
 using Photon.Realtime;
 
-namespace L.A.T.E
+namespace LATE
 {
     /// <summary>
     /// Represents the current status of a player.

@@ -9,7 +9,7 @@ using System.Reflection;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-namespace L.A.T.E
+namespace LATE
 {
     [HarmonyPatch]
     internal static class Patches

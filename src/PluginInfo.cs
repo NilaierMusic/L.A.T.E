@@ -1,4 +1,4 @@
-﻿namespace L.A.T.E
+﻿namespace LATE
 {
     public static class PluginInfo
     {
