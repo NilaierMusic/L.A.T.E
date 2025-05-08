@@ -1344,6 +1344,146 @@ namespace L.A.T.E
         #endregion
 
         /// <summary>
+        /// Manages the host-side coroutine for synchronizing Arena platform states
+        /// to late-joining players.
+        /// </summary>
+        public class HostArenaPlatformSyncManager : MonoBehaviourPunCallbacks
+        {
+            // Keep this private to the manager, LateJoinManager will initiate it
+            private static HostArenaPlatformSyncManager? _instance;
+            public static HostArenaPlatformSyncManager Instance
+            {
+                get
+                {
+                    if (_instance == null)
+                    {
+                        // Try to find an existing instance first
+                        _instance = FindObjectOfType<HostArenaPlatformSyncManager>();
+                        if (_instance == null)
+                        {
+                            // If not found, create it
+                            GameObject go = new GameObject("HostArenaPlatformSyncManager_LATE");
+                            _instance = go.AddComponent<HostArenaPlatformSyncManager>();
+                            DontDestroyOnLoad(go); // Make it persistent if needed across scene loads
+                            LateJoinEntry.Log.LogInfo("[HostArenaPlatformSyncManager] Created instance.");
+                        }
+                    }
+                    return _instance;
+                }
+            }
+
+            private const float RPC_CATCHUP_DELAY = 0.30f; // Tuned slightly from 0.25f
+
+            // This method will be called by LateJoinManager.SyncArenaStateForPlayer
+            public void StartPlatformCatchUpForPlayer(Player targetPlayer, Arena arenaInstance)
+            {
+                if (!PhotonNetwork.IsMasterClient || arenaInstance == null || targetPlayer == null)
+                {
+                    LateJoinEntry.Log.LogWarning("[HostArenaPlatformSyncManager] Cannot start catch-up: Not master, or null arena/player.");
+                    return;
+                }
+                LateJoinEntry.Log.LogInfo($"[HostArenaPlatformSyncManager] Starting platform catch-up for {targetPlayer.NickName}.");
+                StartCoroutine(CatchUpPlayerPlatformSequence(targetPlayer, arenaInstance));
+            }
+
+            private IEnumerator CatchUpPlayerPlatformSequence(Player targetPlayer, Arena arena)
+            {
+                yield return new WaitForSeconds(0.5f);
+
+                // --- Get PhotonView and CurrentState via Reflection ---
+                PhotonView? arenaPV = null;
+                global::Arena.States hostCurrentArenaState = global::Arena.States.Idle; // Default
+                int hostArenaLevel = 0;
+
+                if (Utilities.arenaPhotonViewField != null)
+                {
+                    try { arenaPV = Utilities.arenaPhotonViewField.GetValue(arena) as PhotonView; }
+                    catch (Exception ex) { LateJoinEntry.Log.LogError($"[HostArenaPlatformSyncManager] Error reflecting Arena.photonView: {ex}"); yield break; }
+                }
+                if (arenaPV == null)
+                {
+                    LateJoinEntry.Log.LogError("[HostArenaPlatformSyncManager] Arena.photonView is null after reflection. Aborting platform sync.");
+                    yield break;
+                }
+
+                if (Utilities.arenaCurrentStateField != null)
+                {
+                    try { hostCurrentArenaState = (global::Arena.States)(Utilities.arenaCurrentStateField.GetValue(arena) ?? global::Arena.States.Idle); }
+                    catch (Exception ex) { LateJoinEntry.Log.LogError($"[HostArenaPlatformSyncManager] Error reflecting Arena.currentState: {ex}"); /* Continue with default or break */ }
+                }
+                else { LateJoinEntry.Log.LogError("[HostArenaPlatformSyncManager] Arena.currentState field info null."); }
+
+
+                if (Utilities.arenaLevelField != null) // Changed from AccessTools.Field to Utilities
+                {
+                    try
+                    {
+                        hostArenaLevel = (int)(Utilities.arenaLevelField.GetValue(arena) ?? 0);
+                    }
+                    catch (Exception ex)
+                    {
+                        LateJoinEntry.Log.LogError($"[HostArenaPlatformSyncManager] Error reflecting Arena.level: {ex}");
+                        yield break;
+                    }
+                }
+                else
+                {
+                    LateJoinEntry.Log.LogError("[HostArenaPlatformSyncManager] Arena.level field not found via Utilities. Aborting platform sync.");
+                    yield break;
+                }
+                // --- End Reflection ---
+
+
+                LateJoinEntry.Log.LogInfo($"[HostArenaPlatformSyncManager] Host Arena.level is {hostArenaLevel}. Current Arena state on host: {hostCurrentArenaState}");
+
+                if (hostArenaLevel > 0)
+                {
+                    LateJoinEntry.Log.LogDebug($"[HostArenaPlatformSyncManager] Replaying {hostArenaLevel} platform stages for {targetPlayer.NickName}.");
+                    for (int i = 0; i < hostArenaLevel; i++)
+                    {
+                        if (!PhotonNetwork.CurrentRoom.Players.ContainsKey(targetPlayer.ActorNumber))
+                        {
+                            LateJoinEntry.Log.LogWarning($"[HostArenaPlatformSyncManager] Player {targetPlayer.NickName} left during platform catch-up. Aborting.");
+                            yield break;
+                        }
+
+                        LateJoinEntry.Log.LogDebug($"[HostArenaPlatformSyncManager] Sending PlatformWarning (for client level {i + 1}) to {targetPlayer.NickName}.");
+                        arenaPV.RPC("StateSetRPC", targetPlayer, global::Arena.States.PlatformWarning); // Use reflected arenaPV
+                        yield return new WaitForSeconds(RPC_CATCHUP_DELAY);
+
+                        if (!PhotonNetwork.CurrentRoom.Players.ContainsKey(targetPlayer.ActorNumber))
+                        {
+                            LateJoinEntry.Log.LogWarning($"[HostArenaPlatformSyncManager] Player {targetPlayer.NickName} left during platform catch-up. Aborting.");
+                            yield break;
+                        }
+
+                        LateJoinEntry.Log.LogDebug($"[HostArenaPlatformSyncManager] Sending PlatformRemove (for client level {i + 1}) to {targetPlayer.NickName}.");
+                        arenaPV.RPC("StateSetRPC", targetPlayer, global::Arena.States.PlatformRemove); // Use reflected arenaPV
+                        yield return new WaitForSeconds(RPC_CATCHUP_DELAY);
+                    }
+                    LateJoinEntry.Log.LogInfo($"[HostArenaPlatformSyncManager] Finished replaying {hostArenaLevel} platform stages for {targetPlayer.NickName}.");
+                }
+                else
+                {
+                    LateJoinEntry.Log.LogInfo($"[HostArenaPlatformSyncManager] No platform stages (hostArenaLevel = 0) to replay for {targetPlayer.NickName}.");
+                }
+
+                // Re-fetch current state in case it changed during the yield loop (unlikely for Arena but good practice)
+                if (Utilities.arenaCurrentStateField != null)
+                {
+                    try { hostCurrentArenaState = (global::Arena.States)(Utilities.arenaCurrentStateField.GetValue(arena) ?? global::Arena.States.Idle); }
+                    catch { /* Already logged */ }
+                }
+
+                LateJoinEntry.Log.LogInfo($"[HostArenaPlatformSyncManager] Setting final CURRENT Arena state ({hostCurrentArenaState}) for {targetPlayer.NickName}.");
+                arenaPV.RPC("StateSetRPC", targetPlayer, hostCurrentArenaState); // Use reflected arenaPV
+                yield return new WaitForSeconds(RPC_CATCHUP_DELAY);
+
+                LateJoinEntry.Log.LogInfo($"[HostArenaPlatformSyncManager] Arena platform catch-up sequence complete for {targetPlayer.NickName}. Their Arena.level should now be approx {hostArenaLevel}.");
+            }
+        }
+
+        /// <summary>
         /// Synchronizes Arena-specific state (cage destruction, winner) to a
         /// late-joining player by re-sending existing RPCs targeted only at that
         /// player. Called only when the host is in the Arena level during a
@@ -1351,322 +1491,141 @@ namespace L.A.T.E
         /// </summary>
         private static void SyncArenaStateForPlayer(Player targetPlayer)
         {
-            // Use Null Conditional and Coalescing for robustness
-            string targetNickname =
-                targetPlayer?.NickName ?? $"ActorNr {targetPlayer?.ActorNumber ?? -1}";
+            string targetNickname = targetPlayer?.NickName ?? $"ActorNr {targetPlayer?.ActorNumber ?? -1}";
             if (targetPlayer == null)
             {
-                LateJoinEntry.Log.LogWarning(
-                    $"[LateJoinManager][Arena Sync] Target player is null. Aborting sync."
-                );
+                LateJoinEntry.Log.LogWarning("[LateJoinManager][Arena Sync] Target player is null. Aborting sync.");
                 return;
             }
 
-            LateJoinEntry.Log.LogInfo(
-                $"[LateJoinManager][Arena Sync] Starting Arena state sync for {targetNickname} (ActorNr: {targetPlayer.ActorNumber})."
-            );
+            LateJoinEntry.Log.LogInfo($"[LateJoinManager][Arena Sync] Starting FULL Arena state sync for {targetNickname} (ActorNr: {targetPlayer.ActorNumber}).");
 
-            // --- Pre-checks ---
             if (!Utilities.IsRealMasterClient())
             {
-                // Use Debug if this can happen normally, Warning if it indicates an unexpected call
-                LateJoinEntry.Log.LogDebug(
-                    "[LateJoinManager][Arena Sync] Current client is not the Master Client. Skipping host-specific sync."
-                );
+                LateJoinEntry.Log.LogDebug("[LateJoinManager][Arena Sync] Not Master Client. Skipping host-specific sync.");
                 return;
             }
 
             Arena arenaInstance = Arena.instance;
             if (arenaInstance == null)
             {
-                LateJoinEntry.Log.LogWarning(
-                    "[LateJoinManager][Arena Sync] Arena.instance is null. Cannot perform sync. Aborting."
-                );
+                LateJoinEntry.Log.LogWarning("[LateJoinManager][Arena Sync] Arena.instance is null. Aborting.");
                 return;
             }
 
-            PhotonView arenaPV = arenaInstance.GetComponent<PhotonView>();
-            if (arenaPV == null)
-            {
-                LateJoinEntry.Log.LogWarning(
-                    "[LateJoinManager][Arena Sync] Arena instance does not have a PhotonView component. Cannot send RPCs. Aborting."
-                );
-                return;
-            }
-            LateJoinEntry.Log.LogDebug("[LateJoinManager][Arena Sync] Pre-checks passed.");
-            // --- End Pre-checks ---
-
-            // --- Sync Cage Destruction ---
-            LateJoinEntry.Log.LogDebug(
-                "[LateJoinManager][Arena Sync] Attempting to sync cage destruction state."
-            );
-            FieldInfo crownCageDestroyedField = AccessTools.Field(
-                typeof(Arena),
-                "crownCageDestroyed"
-            );
-            bool hostCageIsDestroyed = false; // Default assumption
-
-            if (crownCageDestroyedField != null)
+            // --- Get Arena PhotonView via Reflection ---
+            PhotonView? arenaPV = null;
+            if (Utilities.arenaPhotonViewField != null)
             {
                 try
                 {
-                    // Ensure the value can be cast before assigning
-                    object fieldValue = crownCageDestroyedField.GetValue(arenaInstance);
-                    if (fieldValue is bool)
-                    {
-                        hostCageIsDestroyed = (bool)fieldValue;
-                        LateJoinEntry.Log.LogDebug(
-                            $"[LateJoinManager][Arena Sync] Reflected 'crownCageDestroyed' value: {hostCageIsDestroyed}"
-                        );
-                    }
-                    else
-                    {
-                        LateJoinEntry.Log.LogWarning(
-                            $"[LateJoinManager][Arena Sync HostOnly] Reflected 'crownCageDestroyed' field value was not a boolean (Type: {fieldValue?.GetType().Name ?? "null"}). Assuming cage is not destroyed."
-                        );
-                        // Keep hostCageIsDestroyed as false
-                    }
+                    arenaPV = Utilities.arenaPhotonViewField.GetValue(arenaInstance) as PhotonView;
                 }
                 catch (Exception ex)
                 {
-                    // Log detailed warning including the exception
-                    LateJoinEntry.Log.LogWarning(
-                        $"[LateJoinManager][Arena Sync HostOnly] Exception occurred while getting 'Arena.crownCageDestroyed' field value via reflection. Assuming cage is not destroyed. Details: {ex}"
-                    );
-                    // Keep hostCageIsDestroyed as false
+                    LateJoinEntry.Log.LogError($"[LateJoinManager][Arena Sync] Error reflecting Arena.photonView: {ex}");
+                    return; // Critical failure
                 }
             }
-            else
+            if (arenaPV == null)
             {
-                LateJoinEntry.Log.LogWarning(
-                    "[LateJoinManager][Arena Sync HostOnly] Could not find 'Arena.crownCageDestroyed' field via reflection. Assuming cage is not destroyed."
-                );
-                // Keep hostCageIsDestroyed as false
+                LateJoinEntry.Log.LogWarning("[LateJoinManager][Arena Sync] Arena PhotonView is null after reflection. Aborting.");
+                return;
             }
+            LateJoinEntry.Log.LogDebug("[LateJoinManager][Arena Sync] Base pre-checks passed, Arena PV obtained.");
+
+
+            // --- 1. Sync One-Off States (Cage, Winner, Pedestal) ---
+
+            // Sync Cage Destruction
+            bool hostCageIsDestroyed = false;
+            if (Utilities.arenaCrownCageDestroyedField != null) // Use Utilities field
+            {
+                try
+                {
+                    object fieldValue = Utilities.arenaCrownCageDestroyedField.GetValue(arenaInstance);
+                    if (fieldValue is bool) hostCageIsDestroyed = (bool)fieldValue;
+                    else LateJoinEntry.Log.LogWarning($"[LateJoinManager][Arena Sync] Reflected 'crownCageDestroyed' was not bool.");
+                }
+                catch (Exception ex) { LateJoinEntry.Log.LogWarning($"[LateJoinManager][Arena Sync] Error reflecting 'crownCageDestroyed': {ex}"); }
+            }
+            else { LateJoinEntry.Log.LogWarning("[LateJoinManager][Arena Sync] Utilities.arenaCrownCageDestroyedField is null."); }
 
             if (hostCageIsDestroyed)
             {
-                LateJoinEntry.Log.LogInfo(
-                    $"[LateJoinManager][Arena Sync] Host cage is destroyed. Sending targeted DestroyCrownCageRPC to {targetNickname}."
-                );
-                try
-                {
-                    arenaPV.RPC("DestroyCrownCageRPC", targetPlayer);
-                    LateJoinEntry.Log.LogDebug(
-                        $"[LateJoinManager][Arena Sync] DestroyCrownCageRPC sent successfully to {targetNickname}."
-                    );
-                }
-                catch (Exception ex)
-                {
-                    // Log as Error because failing to send an intended RPC is usually significant
-                    LateJoinEntry.Log.LogError(
-                        $"[LateJoinManager][Arena Sync] Failed to send DestroyCrownCageRPC to {targetNickname}. Error: {ex}"
-                    );
-                }
+                LateJoinEntry.Log.LogInfo($"[LateJoinManager][Arena Sync] Sending DestroyCrownCageRPC to {targetNickname}.");
+                try { arenaPV.RPC("DestroyCrownCageRPC", targetPlayer); } // Use reflected arenaPV
+                catch (Exception ex) { LateJoinEntry.Log.LogError($"[LateJoinManager][Arena Sync] Failed DestroyCrownCageRPC: {ex}"); }
             }
-            else
-            {
-                LateJoinEntry.Log.LogDebug(
-                    "[LateJoinManager][Arena Sync] Host cage not destroyed. No DestroyCrownCageRPC needed."
-                );
-            }
-            // --- End Sync Cage Destruction ---
 
-            // --- Sync Winner (Using Reflection) ---
-            LateJoinEntry.Log.LogDebug(
-                "[LateJoinManager][Arena Sync] Attempting to sync winner state."
-            );
+            // Sync Winner
             PlayerAvatar? currentWinner = null;
-            FieldInfo winnerField =
-                Utilities.arenaWinnerPlayerField
-                ?? AccessTools.Field(typeof(Arena), "winnerPlayer");
-
-            if (winnerField != null)
+            if (Utilities.arenaWinnerPlayerField != null) // Use Utilities field
             {
-                try
-                {
-                    currentWinner = winnerField.GetValue(arenaInstance) as PlayerAvatar;
-                    if (currentWinner != null)
-                    {
-                        LateJoinEntry.Log.LogDebug(
-                            $"[LateJoinManager][Arena Sync] Reflected 'winnerPlayer' field value obtained successfully."
-                        );
-                    }
-                    else
-                    {
-                        LateJoinEntry.Log.LogDebug(
-                            $"[LateJoinManager][Arena Sync] Reflected 'winnerPlayer' field value is null or not a PlayerAvatar."
-                        );
-                    }
-                }
-                catch (Exception ex)
-                {
-                    LateJoinEntry.Log.LogWarning(
-                        $"[LateJoinManager][Arena Sync HostOnly] Exception occurred while getting 'Arena.winnerPlayer' field value via reflection. Cannot sync winner. Details: {ex}"
-                    );
-                    currentWinner = null; // Ensure winner is null if reflection failed
-                }
+                try { currentWinner = Utilities.arenaWinnerPlayerField.GetValue(arenaInstance) as PlayerAvatar; }
+                catch (Exception ex) { LateJoinEntry.Log.LogWarning($"[LateJoinManager][Arena Sync] Error reflecting 'winnerPlayer': {ex}"); }
             }
-            else
-            {
-                LateJoinEntry.Log.LogWarning(
-                    "[LateJoinManager][Arena Sync HostOnly] Could not find 'Arena.winnerPlayer' field via reflection. Cannot sync winner."
-                );
-                // currentWinner remains null
-            }
+            else { LateJoinEntry.Log.LogWarning("[LateJoinManager][Arena Sync] Utilities.arenaWinnerPlayerField is null."); }
 
             if (currentWinner != null)
             {
-                string winnerNickname = Utilities.GetPlayerNickname(currentWinner); // Assuming this utility handles null safely
-                LateJoinEntry.Log.LogInfo(
-                    $"[LateJoinManager][Arena Sync] Host has a winner: {winnerNickname}. Attempting to sync winner state."
-                );
-
-                int winnerPhysGrabberViewID = Utilities.GetPhysGrabberViewId(currentWinner); // Assuming this utility handles null safely
+                int winnerPhysGrabberViewID = Utilities.GetPhysGrabberViewId(currentWinner);
                 if (winnerPhysGrabberViewID > 0)
                 {
-                    LateJoinEntry.Log.LogInfo(
-                        $"[LateJoinManager][Arena Sync] Sending targeted CrownGrabRPC (Winner PhysGrabber ViewID: {winnerPhysGrabberViewID}) to {targetNickname}."
-                    );
-                    try
-                    {
-                        arenaPV.RPC("CrownGrabRPC", targetPlayer, winnerPhysGrabberViewID);
-                        LateJoinEntry.Log.LogDebug(
-                            $"[LateJoinManager][Arena Sync] CrownGrabRPC sent successfully to {targetNickname}."
-                        );
-                    }
-                    catch (Exception ex)
-                    {
-                        LateJoinEntry.Log.LogError(
-                            $"[LateJoinManager][Arena Sync] Failed to send CrownGrabRPC (Winner PhysGrabber ViewID: {winnerPhysGrabberViewID}) to {targetNickname}. Error: {ex}"
-                        );
-                    }
-                }
-                else
-                {
-                    LateJoinEntry.Log.LogWarning(
-                        $"[LateJoinManager][Arena Sync] Could not get a valid PhysGrabber ViewID (Got: {winnerPhysGrabberViewID}) for winner {winnerNickname}. Skipping winner sync RPC."
-                    );
+                    LateJoinEntry.Log.LogInfo($"[LateJoinManager][Arena Sync] Sending CrownGrabRPC to {targetNickname}.");
+                    try { arenaPV.RPC("CrownGrabRPC", targetPlayer, winnerPhysGrabberViewID); } // Use reflected arenaPV
+                    catch (Exception ex) { LateJoinEntry.Log.LogError($"[LateJoinManager][Arena Sync] Failed CrownGrabRPC: {ex}"); }
                 }
             }
-            else
-            {
-                LateJoinEntry.Log.LogDebug(
-                    "[LateJoinManager][Arena Sync] No current winner found on host. Skipping winner sync RPC."
-                );
-            }
-            // --- End Sync Winner ---
 
-            // ---> SYNC PEDESTAL SCREEN (Calculate Actual Count) <---
-            LateJoinEntry.Log.LogDebug(
-                "[LateJoinManager][Arena Sync] Attempting to sync pedestal player count."
-            );
+            // Sync Pedestal Screen Player Count
             int actualLivePlayerCount = 0;
-            GameDirector gameDirectorInstance = GameDirector.instance; // Cache instance
-
-            if (gameDirectorInstance == null)
+            GameDirector gameDirectorInstance = GameDirector.instance;
+            if (gameDirectorInstance != null && Utilities.paIsDisabledField != null)
             {
-                LateJoinEntry.Log.LogWarning(
-                    "[LateJoinManager][Arena Sync] GameDirector.instance is null. Cannot calculate actual live count for pedestal sync."
-                );
-            }
-            else if (Utilities.paIsDisabledField == null)
-            {
-                LateJoinEntry.Log.LogWarning(
-                    "[LateJoinManager][Arena Sync] Utilities.paIsDisabledField (reflection helper) is null. Cannot check player status for pedestal sync."
-                );
-            }
-            else
-            {
-                List<PlayerAvatar>? currentPlayersInScene = gameDirectorInstance.PlayerList;
-
+                List<PlayerAvatar> currentPlayersInScene = gameDirectorInstance.PlayerList;
                 if (currentPlayersInScene != null)
                 {
-                    LateJoinEntry.Log.LogDebug(
-                        $"[LateJoinManager][Arena Sync] Iterating through {currentPlayersInScene.Count} players in GameDirector.PlayerList to calculate live count."
-                    );
                     foreach (PlayerAvatar playerAvatar in currentPlayersInScene)
                     {
-                        if (playerAvatar == null)
-                        {
-                            LateJoinEntry.Log.LogDebug(
-                                "[LateJoinManager][Arena Sync] Skipping null PlayerAvatar entry in PlayerList."
-                            );
-                            continue; // Skip null entries
-                        }
-
-                        string playerName = Utilities.GetPlayerNickname(playerAvatar); // Get name for logging
+                        if (playerAvatar == null) continue;
                         try
                         {
-                            // Check if the player is DISABLED using reflection
-                            object isDisabledValue = Utilities.paIsDisabledField.GetValue(
-                                playerAvatar
-                            );
-                            if (isDisabledValue is bool isDisabled)
+                            object isDisabledValue = Utilities.paIsDisabledField.GetValue(playerAvatar);
+                            if (isDisabledValue is bool isDisabled && !isDisabled)
                             {
-                                if (!isDisabled)
-                                {
-                                    actualLivePlayerCount++; // Increment count if player is active
-                                    LateJoinEntry.Log.LogDebug(
-                                        $"[LateJoinManager][Arena Sync] Player {playerName} is active (isDisabled=false). Live count: {actualLivePlayerCount}"
-                                    );
-                                }
-                                else
-                                {
-                                    LateJoinEntry.Log.LogDebug(
-                                        $"[LateJoinManager][Arena Sync] Player {playerName} is disabled. Skipping."
-                                    );
-                                }
-                            }
-                            else
-                            {
-                                LateJoinEntry.Log.LogWarning(
-                                    $"[LateJoinManager][Arena Sync] Reflected 'isDisabled' value for player {playerName} was not a boolean (Type: {isDisabledValue?.GetType().Name ?? "null"}). Assuming player is active for count."
-                                );
-                                actualLivePlayerCount++; // Count as alive if reflection type
-                                                         // is wrong? Or skip? Counting is
-                                                         // safer for pedestal display.
+                                actualLivePlayerCount++;
                             }
                         }
                         catch (Exception ex)
                         {
-                            LateJoinEntry.Log.LogError(
-                                $"[LateJoinManager][Arena Sync] Error reflecting 'isDisabled' for player {playerName}. Assuming player is active for count. Error: {ex}"
-                            );
-                            actualLivePlayerCount++;
+                            LateJoinEntry.Log.LogError($"[LateJoinManager][Arena Sync] Error reflecting 'isDisabled' for pedestal: {ex}");
+                            actualLivePlayerCount++; // Or some default handling
                         }
                     }
-
-                    LateJoinEntry.Log.LogInfo(
-                        $"[LateJoinManager][Arena Sync] Calculated actual live player count: {actualLivePlayerCount}. Sending targeted PlayerKilledRPC to {targetNickname}."
-                    );
-                    try
-                    {
-                        // Send the PlayerKilledRPC with the actual current count
-                        arenaPV.RPC("PlayerKilledRPC", targetPlayer, actualLivePlayerCount);
-                        LateJoinEntry.Log.LogDebug(
-                            $"[LateJoinManager][Arena Sync] PlayerKilledRPC({actualLivePlayerCount}) sent successfully to {targetNickname}."
-                        );
-                    }
-                    catch (Exception ex)
-                    {
-                        LateJoinEntry.Log.LogError(
-                            $"[LateJoinManager][Arena Sync] Error sending targeted PlayerKilledRPC({actualLivePlayerCount}) to {targetNickname}. Error: {ex}"
-                        );
-                    }
-                }
-                else
-                {
-                    LateJoinEntry.Log.LogWarning(
-                        "[LateJoinManager][Arena Sync] GameDirector.PlayerList is null. Cannot calculate actual live count for pedestal sync."
-                    );
                 }
             }
-            // --- END SYNC PEDESTAL SCREEN ---
 
-            LateJoinEntry.Log.LogInfo(
-                $"[LateJoinManager][Arena Sync] Finished Arena state sync attempt for {targetNickname}."
-            );
+
+            LateJoinEntry.Log.LogInfo($"[LateJoinManager][Arena Sync] Calculated actual live player count: {actualLivePlayerCount}. Sending PlayerKilledRPC to {targetNickname}.");
+            try { arenaPV.RPC("PlayerKilledRPC", targetPlayer, actualLivePlayerCount); } // Use reflected arenaPV
+            catch (Exception ex) { LateJoinEntry.Log.LogError($"[LateJoinManager][Arena Sync] Error sending PlayerKilledRPC: {ex}"); }
+
+
+            // --- 2. Sync Arena Platform States ---
+            LateJoinEntry.Log.LogInfo($"[LateJoinManager][Arena Sync] Initiating Arena Platform catch-up sequence for {targetNickname}.");
+            HostArenaPlatformSyncManager syncManager = HostArenaPlatformSyncManager.Instance;
+            if (syncManager != null)
+            {
+                // Pass the arenaInstance (which is the Arena object itself)
+                syncManager.StartPlatformCatchUpForPlayer(targetPlayer, arenaInstance);
+            }
+            else
+            {
+                LateJoinEntry.Log.LogError("[LateJoinManager][Arena Sync] HostArenaPlatformSyncManager instance is null! Cannot sync platforms.");
+            }
+
+            LateJoinEntry.Log.LogInfo($"[LateJoinManager][Arena Sync] Finished Arena state sync (main part) for {targetNickname}. Platform sync running in background.");
         }
 
         #region Extraction Point Item Resync Coroutine

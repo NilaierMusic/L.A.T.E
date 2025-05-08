@@ -295,6 +295,11 @@ namespace L.A.T.E
 
         // --- Arena Fields ---
         public static readonly FieldInfo? arenaWinnerPlayerField = F(typeof(Arena), "winnerPlayer");
+        public static readonly FieldInfo? arenaPhotonViewField = F(typeof(Arena), "photonView");      // NEW
+        public static readonly FieldInfo? arenaCurrentStateField = F(typeof(Arena), "currentState");  // NEW
+        public static readonly FieldInfo? arenaLevelField = F(typeof(Arena), "level");                // NEW (already used in HostArenaPlatformSyncManager, ensure it's here)
+        public static readonly FieldInfo? arenaCrownCageDestroyedField = F(typeof(Arena), "crownCageDestroyed"); // NEW (for consistency, if you use it elsewhere)
+        public static readonly FieldInfo? arenaPlayersAliveField = F(typeof(Arena), "playersAlive"); // NEW (for consistency)
 
         // Cache the field info
         private static FieldInfo? _vpsSetupCompleteField;
@@ -361,6 +366,11 @@ namespace L.A.T.E
                 (paPlayerDeathHeadField, "PlayerAvatar.playerDeathHead"),
                 (pdhPhysGrabObjectField, "PlayerDeathHead.physGrabObject"),
                 (arenaWinnerPlayerField, "Arena.winnerPlayer"),
+                (arenaPhotonViewField, "Arena.photonView (private)"),
+                (arenaCurrentStateField, "Arena.currentState (internal)"),
+                (arenaLevelField, "Arena.level (private)"),
+                (arenaCrownCageDestroyedField, "Arena.crownCageDestroyed (private)"),
+                (arenaPlayersAliveField, "Arena.playersAlive (internal)"),
             };
 
             foreach (var (field, name) in mustExist)
