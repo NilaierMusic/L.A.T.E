@@ -11,7 +11,7 @@ using UnityEngine;
 namespace LATE.Core
 {
     [BepInPlugin(PluginInfo.PLUGIN_GUID, PluginInfo.PLUGIN_NAME, PluginInfo.PLUGIN_VERSION)]
-    internal sealed class LateJoinEntry : BaseUnityPlugin
+    internal sealed class LatePlugin : BaseUnityPlugin
     {
         // Static properties to hold the BepInEx logger and Harmony instance.
         internal static ManualLogSource Log { get; private set; } = null!;

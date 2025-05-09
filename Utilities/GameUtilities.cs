@@ -27,7 +27,7 @@ namespace LATE
         private static void LogIfNull(FieldInfo field, string humanName)
         {
             if (field == null)
-                LateJoinEntry.Log?.LogError($"[Reflection] Could not locate '{humanName}'");
+                LATE.Core.LatePlugin.Log?.LogError($"[Reflection] Could not locate '{humanName}'");
         }
         #endregion
 
@@ -389,34 +389,34 @@ namespace LATE
             // Check 1: Are we in the absolute main menu (before RunManager might exist)?
             if (SemiFunc.IsMainMenu())
             {
-                // LateJoinEntry.Log?.LogDebug("[Utilities.IsModLogicActive] Returning false (Reason: IsMainMenu)");
+                // LATE.Core.LatePlugin.Log?.LogDebug("[Utilities.IsModLogicActive] Returning false (Reason: IsMainMenu)");
                 return false;
             }
 
             // Check 2: Does RunManager exist? If not, probably too early.
             if (RunManager.instance == null)
             {
-                // LateJoinEntry.Log?.LogDebug("[Utilities.IsModLogicActive] Returning false (Reason: RunManager.instance is null)");
+                // LATE.Core.LatePlugin.Log?.LogDebug("[Utilities.IsModLogicActive] Returning false (Reason: RunManager.instance is null)");
                 return false;
             }
 
             // Check 3: Are we in the specific Lobby Menu scene?
             if (SemiFunc.RunIsLobbyMenu())
             {
-                // LateJoinEntry.Log?.LogDebug("[Utilities.IsModLogicActive] Returning false (Reason: RunIsLobbyMenu)");
+                // LATE.Core.LatePlugin.Log?.LogDebug("[Utilities.IsModLogicActive] Returning false (Reason: RunIsLobbyMenu)");
                 return false;
             }
 
             // Check 4: Are we in the Tutorial scene?
             if (SemiFunc.RunIsTutorial())
             {
-                // LateJoinEntry.Log?.LogDebug("[Utilities.IsModLogicActive] Returning false (Reason: RunIsTutorial)");
+                // LATE.Core.LatePlugin.Log?.LogDebug("[Utilities.IsModLogicActive] Returning false (Reason: RunIsTutorial)");
                 return false;
             }
 
             // If none of the above conditions are met, assume we are in a valid gameplay scene
             // (Truck, Shop, Level, Arena) where the mod logic could run (config permitting).
-            // LateJoinEntry.Log?.LogDebug("[Utilities.IsModLogicActive] Returning true (Reason: Assumed valid gameplay scene)");
+            // LATE.Core.LatePlugin.Log?.LogDebug("[Utilities.IsModLogicActive] Returning true (Reason: Assumed valid gameplay scene)");
             return true;
         }
         #endregion
@@ -436,7 +436,7 @@ namespace LATE
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[Utilities] Failed reflecting Enemy.PhotonView on '{enemy?.gameObject?.name ?? "NULL"}': {ex}"
                 );
                 return false;
@@ -460,7 +460,7 @@ namespace LATE
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[Utilities] Failed reflecting Enemy.TargetPlayerViewID on '{enemy?.gameObject?.name ?? "NULL"}': {ex}"
                 );
             }
@@ -483,13 +483,13 @@ namespace LATE
                     targetViewId = id;
                     return true;
                 }
-                LateJoinEntry.Log.LogWarning(
+                LATE.Core.LatePlugin.Log.LogWarning(
                     $"[Utilities] Reflected Enemy.TargetPlayerViewID for '{enemy?.gameObject?.name ?? "NULL"}' was not an int (Type: {value?.GetType()})."
                 );
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[Utilities] Failed reflecting Enemy.TargetPlayerViewID on '{enemy?.gameObject?.name ?? "NULL"}': {ex}"
                 );
             }
@@ -512,7 +512,7 @@ namespace LATE
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[Utilities] Failed reflecting {enemyTypeName}.playerTarget: {ex}"
                 );
                 return null;
@@ -535,7 +535,7 @@ namespace LATE
                 else
                 {
                     // Log if the cached field itself is null (should have been caught by static constructor)
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         $"[Utilities] Cached enemyVisionField is null. Attempting GetComponent fallback for '{enemy.gameObject?.name ?? "NULL"}'."
                     );
                 }
@@ -546,7 +546,7 @@ namespace LATE
                     vision = enemy.GetComponent<EnemyVision>();
                     if (vision != null)
                     {
-                        LateJoinEntry.Log.LogDebug(
+                        LATE.Core.LatePlugin.Log.LogDebug(
                             $"[Utilities] Used GetComponent fallback to get EnemyVision for '{enemy.gameObject?.name ?? "NULL"}'."
                         );
                     }
@@ -554,7 +554,7 @@ namespace LATE
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[Utilities] Error getting EnemyVision for '{enemy.gameObject?.name ?? "NULL"}': {ex}"
                 );
                 vision = null; // Ensure null on error
@@ -562,7 +562,7 @@ namespace LATE
 
             if (vision == null)
             {
-                LateJoinEntry.Log.LogWarning(
+                LATE.Core.LatePlugin.Log.LogWarning(
                     $"[Utilities] Failed to get EnemyVision component for enemy '{enemy.gameObject?.name ?? "NULL"}' via reflection or GetComponent."
                 );
             }
@@ -596,7 +596,7 @@ namespace LATE
                     || raiseEventMethod == null
                 )
                 {
-                    LateJoinEntry.Log.LogError(
+                    LATE.Core.LatePlugin.Log.LogError(
                         "ClearPhotonCache failed: Reflection error getting PhotonNetwork internals."
                     );
                     return;
@@ -617,13 +617,13 @@ namespace LATE
                     }
                 );
 
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     $"Sent RemoveFromRoomCache event using InstantiationId {photonView.InstantiationId} (ViewID: {photonView.ViewID})"
                 );
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"Exception during ClearPhotonCache for InstantiationId {photonView.InstantiationId} (ViewID: {photonView.ViewID}): {ex}"
                 );
             }
@@ -666,7 +666,7 @@ namespace LATE
         /// </summary>
         public static MonoBehaviour? FindCoroutineRunner()
         {
-            LateJoinEntry.Log.LogDebug("Finding coroutine runner…");
+            LATE.Core.LatePlugin.Log.LogDebug("Finding coroutine runner…");
 
 #if UNITY_2022_2_OR_NEWER
 			if (UnityEngine.Object.FindFirstObjectByType<RunManager>() is { } runMgr)
@@ -679,7 +679,7 @@ namespace LATE
             if (GameDirector.instance is { } gDir)
                 return gDir;
 
-            LateJoinEntry.Log.LogError(
+            LATE.Core.LatePlugin.Log.LogError(
                 "Failed to find suitable MonoBehaviour (RunManager or GameDirector) for coroutines!"
             );
             return null;
@@ -700,7 +700,7 @@ namespace LATE
                 );
                 if (_vpsSetupCompleteField == null)
                 {
-                    LateJoinEntry.Log?.LogError(
+                    LATE.Core.LatePlugin.Log?.LogError(
                         "[Utilities] Failed to find internal field 'ValuablePropSwitch.SetupComplete' via reflection."
                     );
                 }
@@ -736,7 +736,7 @@ namespace LATE
             }
 
             // 2. If not found in GameDirector list, search all PlayerAvatars in the scene.
-            LateJoinEntry.Log.LogDebug(
+            LATE.Core.LatePlugin.Log.LogDebug(
                 $"Player {player.NickName} not in GameDirector list, searching scene..."
             );
             foreach (PlayerAvatar avatar in Object.FindObjectsOfType<PlayerAvatar>())
@@ -750,7 +750,7 @@ namespace LATE
                 }
             }
 
-            LateJoinEntry.Log.LogWarning(
+            LATE.Core.LatePlugin.Log.LogWarning(
                 $"[MOD Resync] Could not find PlayerAvatar for {player.NickName} (ActorNr: {player.ActorNumber})."
             );
             return null;
@@ -817,7 +817,7 @@ namespace LATE
                 catch (Exception ex)
                 {
                     // Reflection failure; optionally log or handle the error.
-                    LateJoinEntry.Log?.LogWarning("Failed to get PhotonView via reflection: " + ex);
+                    LATE.Core.LatePlugin.Log?.LogWarning("Failed to get PhotonView via reflection: " + ex);
                 }
             }
 
@@ -857,7 +857,7 @@ namespace LATE
                 }
                 catch (Exception ex)
                 {
-                    LateJoinEntry.Log?.LogWarning(
+                    LATE.Core.LatePlugin.Log?.LogWarning(
                         $"Failed to reflect playerName for avatar: {ex.Message}"
                     );
                 }
@@ -869,7 +869,7 @@ namespace LATE
                 return $"ActorNr {pv.OwnerActorNr}";
             }
 
-            LateJoinEntry.Log?.LogWarning(
+            LATE.Core.LatePlugin.Log?.LogWarning(
                 $"Could not determine nickname for avatar (ViewID: {pv?.ViewID ?? 0}), returning fallback."
             );
             return "<UnknownPlayer>";
@@ -900,7 +900,7 @@ namespace LATE
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log?.LogError($"[GetPhysGrabberViewId] Reflection error: {ex}");
+                LATE.Core.LatePlugin.Log?.LogError($"[GetPhysGrabberViewId] Reflection error: {ex}");
             }
             return -1;
         }
@@ -930,7 +930,7 @@ namespace LATE
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log?.LogError(
+                LATE.Core.LatePlugin.Log?.LogError(
                     $"[GetPhotonViewFromPGO] Reflection error getting PhotonView from PhysGrabObject '{pgo.gameObject?.name ?? "NULL"}': {ex}"
                 );
                 return null;

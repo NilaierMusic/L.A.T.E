@@ -66,7 +66,7 @@ namespace LATE
             // If a death-head transform is already stored, skip the update.
             if (_lastTransforms.TryGetValue(userId, out var existingTransform) && existingTransform.IsDeathHeadPosition)
             {
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     $"{LogPrefix}Skipping normal update for {player.NickName}; death position already tracked."
                 );
 
@@ -74,7 +74,7 @@ namespace LATE
             }
 
             _lastTransforms[userId] = new PlayerTransformData(position, rotation, isDeathHead: false);
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"{LogPrefix}Updated ALIVE position for '{player.NickName}' (ID: {userId}) to {position}"
             );
         }
@@ -91,7 +91,7 @@ namespace LATE
             }
 
             _lastTransforms[userId] = new PlayerTransformData(position, rotation, isDeathHead: true);
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"{LogPrefix}Updated DEATH position for '{player.NickName}' (ID: {userId}) to {position}"
             );
         }
@@ -122,7 +122,7 @@ namespace LATE
 
             if (_lastTransforms.Remove(userId))
             {
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"{LogPrefix}Cleared position record for '{player.NickName}' (ID: {userId})."
                 );
             }
@@ -134,7 +134,7 @@ namespace LATE
         public static void ResetPositions()
         {
             _lastTransforms.Clear();
-            LateJoinEntry.Log.LogInfo($"{LogPrefix}Reset all tracked player positions for new level.");
+            LATE.Core.LatePlugin.Log.LogInfo($"{LogPrefix}Reset all tracked player positions for new level.");
         }
 
         #endregion

@@ -67,7 +67,7 @@ namespace LATE
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError($"Error reflecting voiceChatFetched for {viewId}: {ex}");
+                LATE.Core.LatePlugin.Log.LogError($"Error reflecting voiceChatFetched for {viewId}: {ex}");
                 return;
             }
 
@@ -81,11 +81,11 @@ namespace LATE
                 if (currentVoiceFetched && !previousVoiceFetched)
                 {
                     string playerName = pv.Owner?.NickName ?? $"ActorNr {pv.OwnerActorNr}";
-                    LateJoinEntry.Log.LogInfo($"[VoiceManager] Host detected voiceChatFetched TRUE for {playerName} ({viewId}).");
+                    LATE.Core.LatePlugin.Log.LogInfo($"[VoiceManager] Host detected voiceChatFetched TRUE for {playerName} ({viewId}).");
 
                     if (!_syncScheduled)
                     {
-                        if (LateJoinEntry.CoroutineRunner != null)
+                        if (LATE.Core.LatePlugin.CoroutineRunner != null)
                         {
                             // Only schedule if in a valid game state.
                             if (PhotonNetwork.InRoom
@@ -97,7 +97,7 @@ namespace LATE
                             }
                             else
                             {
-                                LateJoinEntry.Log.LogInfo(
+                                LATE.Core.LatePlugin.Log.LogInfo(
                                     $"[VoiceManager] Skipping voice sync schedule: Conditions not met " +
                                     $"(InRoom={PhotonNetwork.InRoom}, Count={PhotonNetwork.CurrentRoom?.PlayerCount ?? 0}, " +
                                     $"GDState OK={(GameDirector.instance != null && !SemiFunc.RunIsLobbyMenu())}).");
@@ -105,12 +105,12 @@ namespace LATE
                         }
                         else
                         {
-                            LateJoinEntry.Log.LogError("[VoiceManager] Cannot schedule voice sync: Coroutine runner is null!");
+                            LATE.Core.LatePlugin.Log.LogError("[VoiceManager] Cannot schedule voice sync: Coroutine runner is null!");
                         }
                     }
                     else
                     {
-                        LateJoinEntry.Log.LogInfo($"[VoiceManager] Voice sync already scheduled, ignoring trigger from {playerName}.");
+                        LATE.Core.LatePlugin.Log.LogInfo($"[VoiceManager] Voice sync already scheduled, ignoring trigger from {playerName}.");
                     }
                 }
             }
@@ -129,20 +129,20 @@ namespace LATE
         {
             if (_syncScheduled)
             {
-                LateJoinEntry.Log.LogInfo($"[VoiceManager] Voice sync already scheduled, ignoring trigger: {reason}");
+                LATE.Core.LatePlugin.Log.LogInfo($"[VoiceManager] Voice sync already scheduled, ignoring trigger: {reason}");
                 return;
             }
 
             // Ensure a CoroutineRunner is available by accessing the property.
-            if (LateJoinEntry.CoroutineRunner != null)
+            if (LATE.Core.LatePlugin.CoroutineRunner != null)
             {
-                LateJoinEntry.Log.LogInfo($"[VoiceManager] Scheduling delayed voice sync (Trigger: {reason}, Delay: {delay}s)...");
-                LateJoinEntry.CoroutineRunner.StartCoroutine(DelayedVoiceSync(reason, delay));
+                LATE.Core.LatePlugin.Log.LogInfo($"[VoiceManager] Scheduling delayed voice sync (Trigger: {reason}, Delay: {delay}s)...");
+                LATE.Core.LatePlugin.CoroutineRunner.StartCoroutine(DelayedVoiceSync(reason, delay));
                 _syncScheduled = true;
             }
             else
             {
-                LateJoinEntry.Log.LogError("[VoiceManager] Cannot schedule voice sync: Coroutine runner is null and could not be found!");
+                LATE.Core.LatePlugin.Log.LogError("[VoiceManager] Cannot schedule voice sync: Coroutine runner is null and could not be found!");
             }
         }
 
@@ -154,11 +154,11 @@ namespace LATE
         {
             if (leftPlayer == null)
             {
-                LateJoinEntry.Log.LogWarning("[VoiceManager] HandlePlayerLeft called with null player.");
+                LATE.Core.LatePlugin.Log.LogWarning("[VoiceManager] HandlePlayerLeft called with null player.");
                 return;
             }
 
-            LateJoinEntry.Log.LogInfo($"[VoiceManager] Cleaning up voice state for leaving player: {leftPlayer.NickName} ({leftPlayer.ActorNumber})");
+            LATE.Core.LatePlugin.Log.LogInfo($"[VoiceManager] Cleaning up voice state for leaving player: {leftPlayer.NickName} ({leftPlayer.ActorNumber})");
 
             // Attempt to locate the PlayerAvatar for the leaving player to get its ViewID.
             int viewIdToRemove = -1;
@@ -177,12 +177,12 @@ namespace LATE
                 // Remove the player's entry from the state tracking.
                 if (_previousVoiceChatFetchedStates.Remove(viewIdToRemove))
                 {
-                    LateJoinEntry.Log.LogInfo($"[VoiceManager] Removed ViewID {viewIdToRemove} from voice state tracking.");
+                    LATE.Core.LatePlugin.Log.LogInfo($"[VoiceManager] Removed ViewID {viewIdToRemove} from voice state tracking.");
                 }
             }
             else
             {
-                LateJoinEntry.Log.LogWarning($"[VoiceManager] Could not find ViewID for leaving player {leftPlayer.NickName} to cleanup voice state.");
+                LATE.Core.LatePlugin.Log.LogWarning($"[VoiceManager] Could not find ViewID for leaving player {leftPlayer.NickName} to cleanup voice state.");
             }
         }
 
@@ -200,7 +200,7 @@ namespace LATE
         {
             yield return new WaitForSeconds(delay);
 
-            LateJoinEntry.Log.LogInfo($"[VoiceManager] Executing delayed voice sync (Trigger: {triggerReason}, Delay: {delay}s).");
+            LATE.Core.LatePlugin.Log.LogInfo($"[VoiceManager] Executing delayed voice sync (Trigger: {triggerReason}, Delay: {delay}s).");
 
             // Reset the flag to allow future syncs.
             _syncScheduled = false;
@@ -208,17 +208,17 @@ namespace LATE
             // Pre-sync checks.
             if (!Utilities.IsRealMasterClient())
             {
-                LateJoinEntry.Log.LogWarning("[VoiceManager] No longer MasterClient. Aborting voice sync.");
+                LATE.Core.LatePlugin.Log.LogWarning("[VoiceManager] No longer MasterClient. Aborting voice sync.");
                 yield break;
             }
             if (!PhotonNetwork.InRoom || PhotonNetwork.CurrentRoom.PlayerCount <= 1)
             {
-                LateJoinEntry.Log.LogWarning("[VoiceManager] Skipping voice sync: Not in suitable room.");
+                LATE.Core.LatePlugin.Log.LogWarning("[VoiceManager] Skipping voice sync: Not in suitable room.");
                 yield break;
             }
             if (GameDirector.instance == null || SemiFunc.RunIsLobbyMenu())
             {
-                LateJoinEntry.Log.LogWarning("[VoiceManager] Game state invalid for voice sync.");
+                LATE.Core.LatePlugin.Log.LogWarning("[VoiceManager] Game state invalid for voice sync.");
                 yield break;
             }
 
@@ -227,11 +227,11 @@ namespace LATE
                 List<PlayerAvatar>? playerAvatars = GameDirector.instance?.PlayerList;
                 if (playerAvatars == null)
                 {
-                    LateJoinEntry.Log.LogError("[VoiceManager] PlayerList null for voice sync.");
+                    LATE.Core.LatePlugin.Log.LogError("[VoiceManager] PlayerList null for voice sync.");
                     yield break;
                 }
 
-                LateJoinEntry.Log.LogInfo($"[VoiceManager] Syncing voice for {playerAvatars.Count} players.");
+                LATE.Core.LatePlugin.Log.LogInfo($"[VoiceManager] Syncing voice for {playerAvatars.Count} players.");
 
                 // Create a copy of the player list to avoid iteration issues.
                 List<PlayerAvatar> playersToSync = new List<PlayerAvatar>(playerAvatars);
@@ -241,7 +241,7 @@ namespace LATE
                     PhotonView? playerPV = Utilities.GetPhotonView(player);
                     if (player == null || playerPV == null)
                     {
-                        LateJoinEntry.Log.LogWarning("[VoiceManager] Null player or PhotonView found during sync. Skipping.");
+                        LATE.Core.LatePlugin.Log.LogWarning("[VoiceManager] Null player or PhotonView found during sync. Skipping.");
                         continue;
                     }
 
@@ -261,7 +261,7 @@ namespace LATE
                     }
                     catch (Exception ex)
                     {
-                        LateJoinEntry.Log.LogError($"Error reflecting voice state for sync on player {playerPV.ViewID}: {ex}");
+                        LATE.Core.LatePlugin.Log.LogError($"Error reflecting voice state for sync on player {playerPV.ViewID}: {ex}");
                         continue;
                     }
 
@@ -273,7 +273,7 @@ namespace LATE
                         {
                             int voiceChatViewID = voiceChatPV.ViewID;
                             string playerName = playerPV.Owner?.NickName ?? $"ActorNr {playerPV.OwnerActorNr}";
-                            LateJoinEntry.Log.LogInfo($"[VoiceManager] Syncing {playerName} (VoiceViewID: {voiceChatViewID}). RPC via PV {playerPV.ViewID}.");
+                            LATE.Core.LatePlugin.Log.LogInfo($"[VoiceManager] Syncing {playerName} (VoiceViewID: {voiceChatViewID}). RPC via PV {playerPV.ViewID}.");
 
                             // Double-check that the player's PhotonView still exists before sending RPC.
                             if (Utilities.GetPhotonView(player) != null)
@@ -283,24 +283,24 @@ namespace LATE
                             }
                             else
                             {
-                                LateJoinEntry.Log.LogWarning($"[VoiceManager] PV for {playerName} became null just before sending RPC. Skipping.");
+                                LATE.Core.LatePlugin.Log.LogWarning($"[VoiceManager] PV for {playerName} became null just before sending RPC. Skipping.");
                             }
                         }
                         else
                         {
-                            LateJoinEntry.Log.LogWarning($"[VoiceManager] Skipping {playerPV.Owner?.NickName ?? "?"} - PlayerVoiceChat component missing PhotonView.");
+                            LATE.Core.LatePlugin.Log.LogWarning($"[VoiceManager] Skipping {playerPV.Owner?.NickName ?? "?"} - PlayerVoiceChat component missing PhotonView.");
                         }
                     }
                     else
                     {
-                        LateJoinEntry.Log.LogWarning($"[VoiceManager] Skipping {playerPV.Owner?.NickName ?? "?"} - voice not fetched or PlayerVoiceChat component null.");
+                        LATE.Core.LatePlugin.Log.LogWarning($"[VoiceManager] Skipping {playerPV.Owner?.NickName ?? "?"} - voice not fetched or PlayerVoiceChat component null.");
                     }
                 }
-                LateJoinEntry.Log.LogInfo("[VoiceManager] Delayed voice sync completed.");
+                LATE.Core.LatePlugin.Log.LogInfo("[VoiceManager] Delayed voice sync completed.");
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError($"[VoiceManager] Error during voice sync execution: {ex}");
+                LATE.Core.LatePlugin.Log.LogError($"[VoiceManager] Error during voice sync execution: {ex}");
                 // Reset the flag even if an error occurs.
                 _syncScheduled = false;
             }

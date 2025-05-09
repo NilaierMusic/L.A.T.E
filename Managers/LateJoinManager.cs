@@ -30,7 +30,7 @@ namespace LATE
         #region Scene Management
         public static void ResetSceneTracking()
         {
-            LateJoinEntry.Log.LogDebug(
+            LATE.Core.LatePlugin.Log.LogDebug(
                 "[LateJoinManager] Clearing late join tracking sets for new scene."
             );
             _playersNeedingLateJoinSync.Clear();
@@ -48,7 +48,7 @@ namespace LATE
         {
             if (newPlayer == null)
             {
-                LateJoinEntry.Log.LogWarning(
+                LATE.Core.LatePlugin.Log.LogWarning(
                     "[LateJoinManager] HandlePlayerJoined called with null player."
                 );
                 return;
@@ -63,7 +63,7 @@ namespace LATE
                 // Mark for the RPC trigger check
                 if (_playersNeedingLateJoinSync.Add(actorNr))
                 {
-                    LateJoinEntry.Log.LogInfo(
+                    LATE.Core.LatePlugin.Log.LogInfo(
                         $"[LateJoinManager] Player {nickname} marked as needing late join DATA sync (awaiting LoadingCompleteRPC)."
                     );
                 }
@@ -71,14 +71,14 @@ namespace LATE
                 // Mark for persistent late-join status (e.g., item equip blocking)
                 if (_playersJoinedLateThisScene.Add(actorNr))
                 {
-                    LateJoinEntry.Log.LogInfo(
+                    LATE.Core.LatePlugin.Log.LogInfo(
                         $"[LateJoinManager] Player {nickname} marked as JOINED LATE THIS SCENE."
                     );
                 }
             }
             else
             {
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"[LateJoinManager] Player {nickname} joined during INACTIVE scene. Not marked as late-joiner."
                 );
             }
@@ -104,7 +104,7 @@ namespace LATE
 
             if (removedNeed)
             {
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     $"[LateJoinManager] Sync triggered for ActorNr {actorNumber}. Removed from 'NeedingSync' list."
                 );
             }
@@ -118,7 +118,7 @@ namespace LATE
                 removedNeed || removedJoinedLate
             )
             {
-                LateJoinEntry.Log?.LogDebug(
+                LATE.Core.LatePlugin.Log?.LogDebug(
                     $"[LateJoinManager] Cleared all sync tracking for ActorNr {actorNumber}."
                 );
             }
@@ -133,7 +133,7 @@ namespace LATE
         {
             int actorNr = targetPlayer.ActorNumber;
             string nickname = targetPlayer.NickName ?? $"ActorNr {actorNr}";
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[LateJoinManager] === Executing SyncAllStateForPlayer for {nickname} ==="
             );
             try
@@ -169,7 +169,7 @@ namespace LATE
 
                 if (Utilities.IsRealMasterClient())
                 {
-                    LateJoinEntry.Log.LogDebug(
+                    LATE.Core.LatePlugin.Log.LogDebug(
                         $"[LateJoinManager] Host preparing to potentially resync EP items for {nickname}."
                     );
                     ExtractionPoint? epToResync = null;
@@ -190,7 +190,7 @@ namespace LATE
                                 if (isThisTheShopEP)
                                 {
                                     epToResync = ep;
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[LateJoinManager] Found Shop EP '{ep.name}' for item resync."
                                     );
                                     break; // Found the shop EP
@@ -198,14 +198,14 @@ namespace LATE
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogWarning(
+                                LATE.Core.LatePlugin.Log.LogWarning(
                                     $"[LateJoinManager] Error checking isShop field on EP '{ep?.name ?? "NULL"}': {ex.Message}"
                                 );
                             }
                         }
                         if (epToResync == null)
                         {
-                            LateJoinEntry.Log.LogWarning(
+                            LATE.Core.LatePlugin.Log.LogWarning(
                                 "[LateJoinManager] Could not find Shop EP for item " + "resync."
                             );
                         }
@@ -226,13 +226,13 @@ namespace LATE
                                     ) as ExtractionPoint;
                                 if (epToResync != null)
                                 {
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[LateJoinManager] Found active Level EP '{epToResync.name}' for item resync."
                                     );
                                 }
                                 else
                                 {
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         "[LateJoinManager] No active Level EP found "
                                             + "(RoundDirector.extractionPointCurrent is "
                                             + "null). Skipping item resync."
@@ -241,14 +241,14 @@ namespace LATE
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[LateJoinManager] Error getting current EP from RoundDirector: {ex}"
                                 );
                             }
                         }
                         else
                         {
-                            LateJoinEntry.Log.LogWarning(
+                            LATE.Core.LatePlugin.Log.LogWarning(
                                 "[LateJoinManager] RoundDirector instance or "
                                     + "rdExtractionPointCurrentField is null. Cannot get "
                                     + "active EP for resync."
@@ -259,12 +259,12 @@ namespace LATE
                     // If we found a relevant EP, start the resync coroutine
                     if (epToResync != null)
                     {
-                        LateJoinEntry.Log.LogInfo(
+                        LATE.Core.LatePlugin.Log.LogInfo(
                             $"[LateJoinManager] Starting ResyncExtractionPointItems coroutine for {nickname} in EP '{epToResync.name}'."
                         );
 
                         // Use the CoroutineRunner property instead of Instance
-                        MonoBehaviour? runner = LateJoinEntry.CoroutineRunner;
+                        MonoBehaviour? runner = LATE.Core.LatePlugin.CoroutineRunner;
                         if (runner != null)
                         {
                             runner.StartCoroutine(
@@ -276,10 +276,10 @@ namespace LATE
                         {
                             // Log an error if no suitable MonoBehaviour was found to
                             // run the coroutine
-                            LateJoinEntry.Log.LogError(
+                            LATE.Core.LatePlugin.Log.LogError(
                                 "[LateJoinManager] Cannot start "
                                     + "ResyncExtractionPointItems: "
-                                    + "LateJoinEntry.CoroutineRunner is null! Ensure "
+                                    + "LATE.Core.LatePlugin.CoroutineRunner is null! Ensure "
                                     + "Utilities.FindCoroutineRunner() can find an active "
                                     + "MonoBehaviour."
                             );
@@ -287,28 +287,28 @@ namespace LATE
                     }
                     else
                     {
-                        LateJoinEntry.Log.LogInfo(
+                        LATE.Core.LatePlugin.Log.LogInfo(
                             $"[LateJoinManager] No suitable EP identified for item resync for {nickname}."
                         );
                     }
                 }
                 else
                 {
-                    LateJoinEntry.Log.LogDebug(
+                    LATE.Core.LatePlugin.Log.LogDebug(
                         "[LateJoinManager] Not Master Client, " + "skipping EP item resync trigger."
                     );
                 }
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[LateJoinManager] CRITICAL ERROR during SyncAllStateForPlayer for {nickname}: {ex}"
                 );
                 ClearPlayerTracking(actorNr);
             }
             finally
             {
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"[LateJoinManager] === SyncAllStateForPlayer Finished for {nickname} ==="
                 );
             }
@@ -323,21 +323,21 @@ namespace LATE
         private static void SyncModuleConnectionStatesForPlayer(Player targetPlayer)
         {
             string nick = targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
-            LateJoinEntry.Log.LogInfo($"[LateJoinManager][Module Sync] Starting Module connection sync for {nick}.");
+            LATE.Core.LatePlugin.Log.LogInfo($"[LateJoinManager][Module Sync] Starting Module connection sync for {nick}.");
 
             // Check if reflection fields are loaded
             if (Utilities.modSetupDoneField == null || Utilities.modConnectingTopField == null ||
                 Utilities.modConnectingBottomField == null || Utilities.modConnectingRightField == null ||
                 Utilities.modConnectingLeftField == null || Utilities.modFirstField == null)
             {
-                LateJoinEntry.Log.LogError("[LateJoinManager][Module Sync] Critical reflection failure: Required Module fields not found in Utilities. Aborting sync.");
+                LATE.Core.LatePlugin.Log.LogError("[LateJoinManager][Module Sync] Critical reflection failure: Required Module fields not found in Utilities. Aborting sync.");
                 return;
             }
 
             Module[] allModules = Object.FindObjectsOfType<Module>(true);
             if (allModules == null || allModules.Length == 0)
             {
-                LateJoinEntry.Log.LogWarning("[LateJoinManager][Module Sync] Found 0 Module components. Skipping sync.");
+                LATE.Core.LatePlugin.Log.LogWarning("[LateJoinManager][Module Sync] Found 0 Module components. Skipping sync.");
                 return;
             }
 
@@ -348,7 +348,7 @@ namespace LATE
             {
                 if (module == null) // Basic null check for the module itself
                 {
-                    LateJoinEntry.Log.LogWarning($"[LateJoinManager][Module Sync] Encountered null module instance. Skipping.");
+                    LATE.Core.LatePlugin.Log.LogWarning($"[LateJoinManager][Module Sync] Encountered null module instance. Skipping.");
                     skippedCount++;
                     continue;
                 }
@@ -356,7 +356,7 @@ namespace LATE
                 PhotonView? pv = Utilities.GetPhotonView(module);
                 if (pv == null)
                 {
-                    LateJoinEntry.Log.LogWarning($"[LateJoinManager][Module Sync] Module '{module.gameObject?.name ?? "NULL"}' is missing PhotonView. Skipping.");
+                    LATE.Core.LatePlugin.Log.LogWarning($"[LateJoinManager][Module Sync] Module '{module.gameObject?.name ?? "NULL"}' is missing PhotonView. Skipping.");
                     skippedCount++;
                     continue;
                 }
@@ -368,7 +368,7 @@ namespace LATE
 
                     if (!setupDone) // Skip modules that aren't fully set up on the host
                     {
-                        LateJoinEntry.Log.LogDebug($"[LateJoinManager][Module Sync] Skipping module '{module.gameObject?.name ?? "NULL GameObject"}' (ViewID: {pv.ViewID}): Not SetupDone on host.");
+                        LATE.Core.LatePlugin.Log.LogDebug($"[LateJoinManager][Module Sync] Skipping module '{module.gameObject?.name ?? "NULL GameObject"}' (ViewID: {pv.ViewID}): Not SetupDone on host.");
                         skippedCount++;
                         continue;
                     }
@@ -381,7 +381,7 @@ namespace LATE
                     bool first = (bool)(Utilities.modFirstField.GetValue(module) ?? false);
                     // ------------------------------------------
 
-                    LateJoinEntry.Log.LogDebug($"[LateJoinManager][Module Sync] Syncing module '{module.gameObject?.name ?? "NULL GameObject"}' (ViewID: {pv.ViewID}) state to {nick}: T={top}, B={bottom}, R={right}, L={left}, First={first}");
+                    LATE.Core.LatePlugin.Log.LogDebug($"[LateJoinManager][Module Sync] Syncing module '{module.gameObject?.name ?? "NULL GameObject"}' (ViewID: {pv.ViewID}) state to {nick}: T={top}, B={bottom}, R={right}, L={left}, First={first}");
 
                     // Send the existing RPC, but targeted only at the late joiner
                     pv.RPC("ModuleConnectionSetRPC", targetPlayer, top, bottom, right, left, first);
@@ -389,12 +389,12 @@ namespace LATE
                 }
                 catch (Exception ex)
                 {
-                    LateJoinEntry.Log.LogError($"[LateJoinManager][Module Sync] Error processing or sending ModuleConnectionSetRPC for module '{module.gameObject?.name ?? "NULL"}' (ViewID: {pv.ViewID}) to {nick}: {ex}");
+                    LATE.Core.LatePlugin.Log.LogError($"[LateJoinManager][Module Sync] Error processing or sending ModuleConnectionSetRPC for module '{module.gameObject?.name ?? "NULL"}' (ViewID: {pv.ViewID}) to {nick}: {ex}");
                     skippedCount++; // Count as skipped on error
                 }
             }
 
-            LateJoinEntry.Log.LogInfo($"[LateJoinManager][Module Sync] Finished Module connection sync for {nick}. Synced: {syncedCount}, Skipped: {skippedCount} (Out of {allModules.Length} total).");
+            LATE.Core.LatePlugin.Log.LogInfo($"[LateJoinManager][Module Sync] Finished Module connection sync for {nick}. Synced: {syncedCount}, Skipped: {skippedCount} (Out of {allModules.Length} total).");
         }
         #endregion // End NEW Module Sync Method
 
@@ -406,7 +406,7 @@ namespace LATE
             RunManager? runManager = RunManager.instance;
             if (runManager == null || runManager.levelCurrent == null)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     "[LateJoinManager][Level Sync] Null RunManager/levelCurrent."
                 );
                 return;
@@ -417,7 +417,7 @@ namespace LATE
                 || Utilities.rmGameOverField == null
             )
             {
-                LateJoinEntry.Log.LogError("[LateJoinManager][Level Sync] Null reflection fields.");
+                LATE.Core.LatePlugin.Log.LogError("[LateJoinManager][Level Sync] Null reflection fields.");
                 return;
             }
             LevelGenerator? levelGen = LevelGenerator.Instance;
@@ -434,7 +434,7 @@ namespace LATE
                 string levelName = runManager.levelCurrent.name;
                 int levelsCompleted = runManager.levelsCompleted;
                 bool gameOver = (bool)(Utilities.rmGameOverField.GetValue(runManager) ?? false);
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"[LateJoinManager][Level Sync] Sending UpdateLevelRPC to {targetPlayerNickname}. Lvl:{levelName}, Comp:{levelsCompleted}, Over:{gameOver}"
                 );
                 punPhotonView.RPC(
@@ -447,7 +447,7 @@ namespace LATE
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[LateJoinManager][Level Sync] Error sending UpdateLevelRPC: {ex}"
                 );
                 return;
@@ -456,21 +456,21 @@ namespace LATE
             {
                 try
                 {
-                    LateJoinEntry.Log.LogInfo(
+                    LATE.Core.LatePlugin.Log.LogInfo(
                         $"[LateJoinManager][Level Sync] Sending GenerateDone RPC to {targetPlayerNickname}."
                     );
                     levelGen.PhotonView.RPC("GenerateDone", targetPlayer);
                 }
                 catch (Exception ex)
                 {
-                    LateJoinEntry.Log.LogError(
+                    LATE.Core.LatePlugin.Log.LogError(
                         $"[LateJoinManager][Level Sync] Error sending GenerateDone RPC: {ex}"
                     );
                 }
             }
             else
             {
-                LateJoinEntry.Log.LogWarning(
+                LATE.Core.LatePlugin.Log.LogWarning(
                     $"[LateJoinManager][Level Sync] Skipped GenerateDone RPC."
                 );
             }
@@ -483,7 +483,7 @@ namespace LATE
         private static void SyncAllItemStatesForPlayer(Player targetPlayer)
         {
             string nick = targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[LateJoinManager][Item State Sync] Starting FULL item state sync for {nick}."
             );
 
@@ -503,7 +503,7 @@ namespace LATE
             try
             {
                 allToggles = Object.FindObjectsOfType<ItemToggle>(); // Find all toggles
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     $"[LateJoinManager][Item State Sync] Found {allToggles.Length} ItemToggles for State/Disabled sync."
                 );
                 foreach (ItemToggle itemToggle in allToggles)
@@ -517,13 +517,13 @@ namespace LATE
                     pv.RPC("ToggleItemRPC", targetPlayer, hostToggleState, -1); // Sync the basic ON/OFF state
                     syncedTogglesState++;
                 }
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"[LateJoinManager][Item State Sync] Synced {syncedTogglesState} ItemToggle ON/OFF states for {nick}."
                 );
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[LateJoinManager][Item State Sync] Error syncing ItemToggle ON/OFF states: {ex}"
                 );
             }
@@ -536,7 +536,7 @@ namespace LATE
                 FieldInfo? disabledField = Utilities.itDisabledField;
                 if (disabledField == null)
                 {
-                    LateJoinEntry.Log.LogError(
+                    LATE.Core.LatePlugin.Log.LogError(
                         $"[LateJoinManager][Item State Sync] Reflection failed: ItemToggle.disabled field not found. Skipping disabled sync."
                     );
                 }
@@ -566,19 +566,19 @@ namespace LATE
                         }
                         catch (Exception refEx)
                         {
-                            LateJoinEntry.Log.LogError(
+                            LATE.Core.LatePlugin.Log.LogError(
                                 $"[LateJoinManager][Item State Sync] Reflection error getting ItemToggle.disabled for '{itemToggle.gameObject.name}': {refEx}"
                             );
                         }
                     }
-                    LateJoinEntry.Log.LogInfo(
+                    LATE.Core.LatePlugin.Log.LogInfo(
                         $"[LateJoinManager][Item State Sync] Synced {syncedTogglesDisabled} ItemToggle DISABLED states for {nick}."
                     );
                 }
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[LateJoinManager][Item State Sync] Error syncing ItemToggle DISABLED states: {ex}"
                 );
             }
@@ -587,7 +587,7 @@ namespace LATE
             try
             {
                 ItemBattery[] allBatteries = Object.FindObjectsOfType<ItemBattery>();
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     $"[LateJoinManager][Item State Sync] Found {allBatteries.Length} ItemBatteries."
                 );
                 foreach (ItemBattery itemBattery in allBatteries)
@@ -606,13 +606,13 @@ namespace LATE
                     pv.RPC("BatteryFullPercentChangeRPC", targetPlayer, hostBatteryLifeInt, false);
                     syncedBatteries++;
                 }
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"[LateJoinManager][Item State Sync] Synced {syncedBatteries} ItemBattery levels for {nick}."
                 );
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[LateJoinManager][Item State Sync] Error syncing ItemBattery levels: {ex}"
                 );
             }
@@ -621,7 +621,7 @@ namespace LATE
             try
             {
                 ItemMine[] allMines = Object.FindObjectsOfType<ItemMine>();
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     $"[LateJoinManager][Item State Sync] Found {allMines.Length} ItemMines."
                 );
                 foreach (ItemMine itemMine in allMines)
@@ -634,7 +634,7 @@ namespace LATE
                     FieldInfo? stateField = Utilities.imStateField;
                     if (stateField == null)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[LateJoinManager][Item State Sync] Reflection failed: ItemMine.state field not found."
                         );
                         continue;
@@ -650,18 +650,18 @@ namespace LATE
                     }
                     catch (Exception refEx)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[LateJoinManager][Item State Sync] Reflection error getting ItemMine state for '{itemMine.gameObject.name}': {refEx}"
                         );
                     }
                 }
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"[LateJoinManager][Item State Sync] Synced {syncedMines} ItemMine states for {nick}."
                 );
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[LateJoinManager][Item State Sync] Error syncing ItemMine states: {ex}"
                 );
             }
@@ -670,7 +670,7 @@ namespace LATE
             try
             {
                 ItemMelee[] allMelees = Object.FindObjectsOfType<ItemMelee>();
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     $"[LateJoinManager][Item State Sync] Found {allMelees.Length} ItemMelees."
                 );
                 foreach (ItemMelee itemMelee in allMelees)
@@ -684,7 +684,7 @@ namespace LATE
                     PhysGrabObject meleePGO = itemMelee.GetComponent<PhysGrabObject>();
                     if (meleeBattery == null || meleePGO == null)
                     {
-                        LateJoinEntry.Log.LogWarning(
+                        LATE.Core.LatePlugin.Log.LogWarning(
                             $"[LateJoinManager][Item State Sync] Skipping melee item '{itemMelee.gameObject.name}' - missing components."
                         );
                         continue;
@@ -692,7 +692,7 @@ namespace LATE
                     FieldInfo? isMeleeField = Utilities.pgoIsMeleeField;
                     if (isMeleeField == null)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[LateJoinManager][Item State Sync] Reflection failed: PhysGrabObject.isMelee field not found."
                         );
                         continue;
@@ -717,18 +717,18 @@ namespace LATE
                     }
                     catch (Exception refEx)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[LateJoinManager][Item State Sync] Reflection error getting PhysGrabObject.isMelee for '{meleePGO.gameObject.name}': {refEx}"
                         );
                     }
                 }
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"[LateJoinManager][Item State Sync] Synced {syncedMelees} ItemMelee broken states for {nick}."
                 );
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[LateJoinManager][Item State Sync] Error syncing ItemMelee states: {ex}"
                 );
             }
@@ -738,7 +738,7 @@ namespace LATE
             try
             {
                 ItemDrone[] allDrones = Object.FindObjectsOfType<ItemDrone>();
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     $"[LateJoinManager][Item State Sync] Found {allDrones.Length} ItemDrones."
                 );
                 foreach (ItemDrone drone in allDrones)
@@ -758,13 +758,13 @@ namespace LATE
                     }
                     // If toggleState is false, the previous ToggleItemRPC sync should handle deactivation.
                 }
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"[LateJoinManager][Item State Sync] Synced {syncedDronesActivated} ItemDrone ACTIVATED states for {nick}."
                 );
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[LateJoinManager][Item State Sync] Error syncing ItemDrone activated states: {ex}"
                 );
             }
@@ -773,7 +773,7 @@ namespace LATE
             try
             {
                 ItemHealthPack[] allHealthPacks = Object.FindObjectsOfType<ItemHealthPack>();
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     $"[LateJoinManager][Item State Sync] Found {allHealthPacks.Length} ItemHealthPacks."
                 );
                 foreach (ItemHealthPack healthPack in allHealthPacks)
@@ -787,7 +787,7 @@ namespace LATE
                     FieldInfo? usedField = Utilities.ihpUsedField;
                     if (usedField == null)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[LateJoinManager][Item State Sync] Reflection failed: ItemHealthPack.used field not found."
                         );
                         continue;
@@ -810,18 +810,18 @@ namespace LATE
                     }
                     catch (Exception refEx)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[LateJoinManager][Item State Sync] Reflection error getting ItemHealthPack.used for '{healthPack.gameObject.name}': {refEx}"
                         );
                     }
                 }
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"[LateJoinManager][Item State Sync] Synced {syncedHealthPacksUsed} USED ItemHealthPack states for {nick}."
                 );
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[LateJoinManager][Item State Sync] Error syncing ItemHealthPack used states: {ex}"
                 );
             }
@@ -830,7 +830,7 @@ namespace LATE
             try
             {
                 ItemGrenade[] allGrenades = Object.FindObjectsOfType<ItemGrenade>();
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     $"[LateJoinManager][Item State Sync] Found {allGrenades.Length} ItemGrenades."
                 );
                 foreach (ItemGrenade grenade in allGrenades)
@@ -843,7 +843,7 @@ namespace LATE
                     FieldInfo? isActiveField = Utilities.igIsActiveField;
                     if (isActiveField == null)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[LateJoinManager][Item State Sync] Reflection failed: ItemGrenade.isActive field not found."
                         );
                         continue;
@@ -862,18 +862,18 @@ namespace LATE
                     }
                     catch (Exception refEx)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[LateJoinManager][Item State Sync] Reflection error getting ItemGrenade.isActive for '{grenade.gameObject.name}': {refEx}"
                         );
                     }
                 }
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"[LateJoinManager][Item State Sync] Synced {syncedGrenadesActive} ItemGrenade active states (Active Only) for {nick}."
                 );
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[LateJoinManager][Item State Sync] Error syncing ItemGrenade active states: {ex}"
                 );
             }
@@ -882,7 +882,7 @@ namespace LATE
             try
             {
                 ItemTracker[] allTrackers = Object.FindObjectsOfType<ItemTracker>();
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     $"[LateJoinManager][Item State Sync] Found {allTrackers.Length} ItemTrackers."
                 );
                 foreach (ItemTracker tracker in allTrackers)
@@ -895,7 +895,7 @@ namespace LATE
                     FieldInfo? targetField = Utilities.itCurrentTargetField;
                     if (targetField == null)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[LateJoinManager][Item State Sync] Reflection failed: ItemTracker.currentTarget field not found."
                         );
                         continue;
@@ -918,7 +918,7 @@ namespace LATE
                             }
                             else
                             {
-                                LateJoinEntry.Log.LogWarning(
+                                LATE.Core.LatePlugin.Log.LogWarning(
                                     $"[LateJoinManager][Item State Sync] Tracker '{tracker.gameObject.name}' has target '{hostTargetTransform.name}', but target has no PhotonView. Cannot sync target."
                                 );
                             }
@@ -926,24 +926,24 @@ namespace LATE
                     }
                     catch (Exception refEx)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[LateJoinManager][Item State Sync] Reflection error getting ItemTracker.currentTarget for '{tracker.gameObject.name}': {refEx}"
                         );
                     }
                 }
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"[LateJoinManager][Item State Sync] Synced {syncedTrackerTargets} ItemTracker targets (Targets Only) for {nick}."
                 );
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[LateJoinManager][Item State Sync] Error syncing ItemTracker targets: {ex}"
                 );
             }
 
             // --- FINAL LOG ---
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[LateJoinManager][Item State Sync] Finished FULL item state sync for {nick}. Totals: "
                     + $"TogglesState={syncedTogglesState}, TogglesDisabled={syncedTogglesDisabled}, Batteries={syncedBatteries}, Mines={syncedMines}, Melees={syncedMelees}, "
                     + $"DronesActivated={syncedDronesActivated}, GrenadesActive={syncedGrenadesActive}, TrackerTargets={syncedTrackerTargets}, HealthPacksUsed={syncedHealthPacksUsed}"
@@ -954,7 +954,7 @@ namespace LATE
         {
             string targetPlayerNickname =
                 targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
-            LateJoinEntry.Log.LogDebug(
+            LATE.Core.LatePlugin.Log.LogDebug(
                 $"[LateJoinManager][EP Sync] Starting EP state/goal/surplus sync for {targetPlayerNickname}."
             );
             if (
@@ -967,7 +967,7 @@ namespace LATE
                 || Utilities.epIsShopField == null
             )
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     "[LateJoinManager][EP Sync] Critical instance or field missing."
                 );
                 return;
@@ -994,12 +994,12 @@ namespace LATE
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[LateJoinManager][EP Sync] Error reflecting RD state: {ex}. Aborting."
                 );
                 return;
             }
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[LateJoinManager][EP Sync] Host EP Active:{isAnyEpActiveOnHost}. Current:{currentActiveEpOnHost?.name ?? "None"}. Surplus:{hostSurplus}"
             );
             PhotonView? firstEpPvForGlobalUnlock = null;
@@ -1048,7 +1048,7 @@ namespace LATE
                     }
                     catch (Exception ex)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[LateJoinManager][EP Sync] RPC Error for EP '{ep.name}': {ex}"
                         );
                     }
@@ -1064,19 +1064,19 @@ namespace LATE
                     }
                     catch (Exception unlockEx)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[LateJoinManager][EP Sync] Failed global UnlockRPC: {unlockEx}"
                         );
                     }
                 }
                 else
                 {
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         "[LateJoinManager][EP Sync] Cannot send global unlock RPC."
                     );
                 }
             }
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[LateJoinManager][EP Sync] Finished EP state/goal/surplus sync for {targetPlayerNickname}."
             );
         }
@@ -1086,13 +1086,13 @@ namespace LATE
             string nick = targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
             if (Utilities.voDollarValueSetField == null)
             {
-                LateJoinEntry.Log.LogError("[LateJoinManager][Valuable Sync] Reflection failed.");
+                LATE.Core.LatePlugin.Log.LogError("[LateJoinManager][Valuable Sync] Reflection failed.");
                 return;
             }
             ValuableObject[]? allValuables = Object.FindObjectsOfType<ValuableObject>();
             if (allValuables == null || allValuables.Length == 0)
             {
-                LateJoinEntry.Log.LogWarning(
+                LATE.Core.LatePlugin.Log.LogWarning(
                     $"[LateJoinManager][Valuable Sync] Found 0 valuables."
                 );
                 return;
@@ -1125,13 +1125,13 @@ namespace LATE
                     }
                     catch (Exception ex)
                     {
-                        LateJoinEntry.Log.LogWarning(
+                        LATE.Core.LatePlugin.Log.LogWarning(
                             $"[LateJoinManager][Valuable Sync] RPC failed for {valuable.name}: {ex.Message}"
                         );
                     }
                 }
             }
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[LateJoinManager][Valuable Sync] Synced values for {syncedCount}/{allValuables.Length} valuables for {nick}."
             );
         }
@@ -1141,13 +1141,13 @@ namespace LATE
             string nick = targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
             if (Utilities.iaValueField == null || Utilities.iaShopItemField == null)
             {
-                LateJoinEntry.Log.LogError("[LateJoinManager][Shop Sync] Reflection failed.");
+                LATE.Core.LatePlugin.Log.LogError("[LateJoinManager][Shop Sync] Reflection failed.");
                 return;
             }
             ItemAttributes[]? allItems = Object.FindObjectsOfType<ItemAttributes>();
             if (allItems == null || allItems.Length == 0)
             {
-                LateJoinEntry.Log.LogWarning($"[LateJoinManager][Shop Sync] Found 0 items.");
+                LATE.Core.LatePlugin.Log.LogWarning($"[LateJoinManager][Shop Sync] Found 0 items.");
                 return;
             }
             int syncedCount = 0;
@@ -1187,12 +1187,12 @@ namespace LATE
                 }
                 catch (Exception ex)
                 {
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         $"[LateJoinManager][Shop Sync] RPC failed for {itemAttr.name}: {ex.Message}"
                     );
                 }
             }
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[LateJoinManager][Shop Sync] Synced {syncedCount} shop items for {nick}."
             );
         }
@@ -1202,7 +1202,7 @@ namespace LATE
             string nick = targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
             if (!ConfigManager.KillIfPreviouslyDead.Value)
             {
-                LateJoinEntry.Log.LogDebug("[LateJoinManager][Death Sync] Disabled by config.");
+                LATE.Core.LatePlugin.Log.LogDebug("[LateJoinManager][Death Sync] Disabled by config.");
                 return;
             }
             PlayerStatus status = PlayerStateManager.GetPlayerStatus(targetPlayer);
@@ -1211,7 +1211,7 @@ namespace LATE
                 PhotonView? pv = Utilities.GetPhotonView(playerAvatar);
                 if (pv == null)
                 {
-                    LateJoinEntry.Log.LogError(
+                    LATE.Core.LatePlugin.Log.LogError(
                         $"[LateJoinManager][Death Sync] Null PV for {nick}."
                     );
                     return;
@@ -1236,21 +1236,21 @@ namespace LATE
                 catch { }
                 if (isDisabled || isDeadSet)
                 {
-                    LateJoinEntry.Log.LogInfo(
+                    LATE.Core.LatePlugin.Log.LogInfo(
                         $"[LateJoinManager][Death Sync] Player {nick} already dead/disabled."
                     );
                     return;
                 }
                 try
                 {
-                    LateJoinEntry.Log.LogInfo(
+                    LATE.Core.LatePlugin.Log.LogInfo(
                         $"[LateJoinManager][Death Sync] Sending PlayerDeathRPC for {nick}."
                     );
                     pv.RPC("PlayerDeathRPC", RpcTarget.AllBuffered, -1);
                 }
                 catch (Exception ex)
                 {
-                    LateJoinEntry.Log.LogError(
+                    LATE.Core.LatePlugin.Log.LogError(
                         $"[LateJoinManager][Death Sync] Error sending RPC: {ex}"
                     );
                 }
@@ -1263,7 +1263,7 @@ namespace LATE
             TruckScreenText? screen = TruckScreenText.instance;
             if (screen == null)
             {
-                LateJoinEntry.Log.LogWarning("[LateJoinManager][Truck Sync] Instance null.");
+                LATE.Core.LatePlugin.Log.LogWarning("[LateJoinManager][Truck Sync] Instance null.");
                 return;
             }
             try
@@ -1271,12 +1271,12 @@ namespace LATE
                 PhotonView? pv = screen.GetComponent<PhotonView>();
                 if (pv == null)
                 {
-                    LateJoinEntry.Log.LogWarning("[LateJoinManager][Truck Sync] PV null.");
+                    LATE.Core.LatePlugin.Log.LogWarning("[LateJoinManager][Truck Sync] PV null.");
                     return;
                 }
                 if (Utilities.tstCurrentPageIndexField == null)
                 {
-                    LateJoinEntry.Log.LogError(
+                    LATE.Core.LatePlugin.Log.LogError(
                         "[LateJoinManager][Truck Sync] Reflection field null."
                     );
                     return;
@@ -1294,20 +1294,20 @@ namespace LATE
                 if (hostPage >= 0)
                 {
                     pv.RPC("GotoPageRPC", targetPlayer, hostPage);
-                    LateJoinEntry.Log.LogInfo(
+                    LATE.Core.LatePlugin.Log.LogInfo(
                         $"[LateJoinManager][Truck Sync] Synced page {hostPage} for {nick}."
                     );
                 }
                 else
                 {
-                    LateJoinEntry.Log.LogInfo(
+                    LATE.Core.LatePlugin.Log.LogInfo(
                         $"[LateJoinManager][Truck Sync] Synced init for {nick}. Host page invalid."
                     );
                 }
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError($"[LateJoinManager][Truck Sync] Error: {ex}");
+                LATE.Core.LatePlugin.Log.LogError($"[LateJoinManager][Truck Sync] Error: {ex}");
             }
         }
 
@@ -1317,25 +1317,25 @@ namespace LATE
             ValuableDirector? director = ValuableDirector.instance;
             if (director == null)
             {
-                LateJoinEntry.Log.LogWarning($"[LateJoinManager][PropSwitch Sync] Instance null.");
+                LATE.Core.LatePlugin.Log.LogWarning($"[LateJoinManager][PropSwitch Sync] Instance null.");
                 return;
             }
             PhotonView? directorPV = director.GetComponent<PhotonView>();
             if (directorPV == null)
             {
-                LateJoinEntry.Log.LogWarning($"[LateJoinManager][PropSwitch Sync] PV null.");
+                LATE.Core.LatePlugin.Log.LogWarning($"[LateJoinManager][PropSwitch Sync] PV null.");
                 return;
             }
             try
             {
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"[LateJoinManager][PropSwitch Sync] Sending VolumesAndSwitchSetupRPC to {nick}."
                 );
                 directorPV.RPC("VolumesAndSwitchSetupRPC", targetPlayer);
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[LateJoinManager][PropSwitch Sync] Error sending RPC: {ex}"
                 );
             }
@@ -1365,7 +1365,7 @@ namespace LATE
                             GameObject go = new GameObject("HostArenaPlatformSyncManager_LATE");
                             _instance = go.AddComponent<HostArenaPlatformSyncManager>();
                             DontDestroyOnLoad(go); // Make it persistent if needed across scene loads
-                            LateJoinEntry.Log.LogInfo("[HostArenaPlatformSyncManager] Created instance.");
+                            LATE.Core.LatePlugin.Log.LogInfo("[HostArenaPlatformSyncManager] Created instance.");
                         }
                     }
                     return _instance;
@@ -1379,10 +1379,10 @@ namespace LATE
             {
                 if (!PhotonNetwork.IsMasterClient || arenaInstance == null || targetPlayer == null)
                 {
-                    LateJoinEntry.Log.LogWarning("[HostArenaPlatformSyncManager] Cannot start catch-up: Not master, or null arena/player.");
+                    LATE.Core.LatePlugin.Log.LogWarning("[HostArenaPlatformSyncManager] Cannot start catch-up: Not master, or null arena/player.");
                     return;
                 }
-                LateJoinEntry.Log.LogInfo($"[HostArenaPlatformSyncManager] Starting platform catch-up for {targetPlayer.NickName}.");
+                LATE.Core.LatePlugin.Log.LogInfo($"[HostArenaPlatformSyncManager] Starting platform catch-up for {targetPlayer.NickName}.");
                 StartCoroutine(CatchUpPlayerPlatformSequence(targetPlayer, arenaInstance));
             }
 
@@ -1398,20 +1398,20 @@ namespace LATE
                 if (Utilities.arenaPhotonViewField != null)
                 {
                     try { arenaPV = Utilities.arenaPhotonViewField.GetValue(arena) as PhotonView; }
-                    catch (Exception ex) { LateJoinEntry.Log.LogError($"[HostArenaPlatformSyncManager] Error reflecting Arena.photonView: {ex}"); yield break; }
+                    catch (Exception ex) { LATE.Core.LatePlugin.Log.LogError($"[HostArenaPlatformSyncManager] Error reflecting Arena.photonView: {ex}"); yield break; }
                 }
                 if (arenaPV == null)
                 {
-                    LateJoinEntry.Log.LogError("[HostArenaPlatformSyncManager] Arena.photonView is null after reflection. Aborting platform sync.");
+                    LATE.Core.LatePlugin.Log.LogError("[HostArenaPlatformSyncManager] Arena.photonView is null after reflection. Aborting platform sync.");
                     yield break;
                 }
 
                 if (Utilities.arenaCurrentStateField != null)
                 {
                     try { hostCurrentArenaState = (global::Arena.States)(Utilities.arenaCurrentStateField.GetValue(arena) ?? global::Arena.States.Idle); }
-                    catch (Exception ex) { LateJoinEntry.Log.LogError($"[HostArenaPlatformSyncManager] Error reflecting Arena.currentState: {ex}"); /* Continue with default or break */ }
+                    catch (Exception ex) { LATE.Core.LatePlugin.Log.LogError($"[HostArenaPlatformSyncManager] Error reflecting Arena.currentState: {ex}"); /* Continue with default or break */ }
                 }
-                else { LateJoinEntry.Log.LogError("[HostArenaPlatformSyncManager] Arena.currentState field info null."); }
+                else { LATE.Core.LatePlugin.Log.LogError("[HostArenaPlatformSyncManager] Arena.currentState field info null."); }
 
 
                 if (Utilities.arenaLevelField != null) // Changed from AccessTools.Field to Utilities
@@ -1422,50 +1422,50 @@ namespace LATE
                     }
                     catch (Exception ex)
                     {
-                        LateJoinEntry.Log.LogError($"[HostArenaPlatformSyncManager] Error reflecting Arena.level: {ex}");
+                        LATE.Core.LatePlugin.Log.LogError($"[HostArenaPlatformSyncManager] Error reflecting Arena.level: {ex}");
                         yield break;
                     }
                 }
                 else
                 {
-                    LateJoinEntry.Log.LogError("[HostArenaPlatformSyncManager] Arena.level field not found via Utilities. Aborting platform sync.");
+                    LATE.Core.LatePlugin.Log.LogError("[HostArenaPlatformSyncManager] Arena.level field not found via Utilities. Aborting platform sync.");
                     yield break;
                 }
                 // --- End Reflection ---
 
 
-                LateJoinEntry.Log.LogInfo($"[HostArenaPlatformSyncManager] Host Arena.level is {hostArenaLevel}. Current Arena state on host: {hostCurrentArenaState}");
+                LATE.Core.LatePlugin.Log.LogInfo($"[HostArenaPlatformSyncManager] Host Arena.level is {hostArenaLevel}. Current Arena state on host: {hostCurrentArenaState}");
 
                 if (hostArenaLevel > 0)
                 {
-                    LateJoinEntry.Log.LogDebug($"[HostArenaPlatformSyncManager] Replaying {hostArenaLevel} platform stages for {targetPlayer.NickName}.");
+                    LATE.Core.LatePlugin.Log.LogDebug($"[HostArenaPlatformSyncManager] Replaying {hostArenaLevel} platform stages for {targetPlayer.NickName}.");
                     for (int i = 0; i < hostArenaLevel; i++)
                     {
                         if (!PhotonNetwork.CurrentRoom.Players.ContainsKey(targetPlayer.ActorNumber))
                         {
-                            LateJoinEntry.Log.LogWarning($"[HostArenaPlatformSyncManager] Player {targetPlayer.NickName} left during platform catch-up. Aborting.");
+                            LATE.Core.LatePlugin.Log.LogWarning($"[HostArenaPlatformSyncManager] Player {targetPlayer.NickName} left during platform catch-up. Aborting.");
                             yield break;
                         }
 
-                        LateJoinEntry.Log.LogDebug($"[HostArenaPlatformSyncManager] Sending PlatformWarning (for client level {i + 1}) to {targetPlayer.NickName}.");
+                        LATE.Core.LatePlugin.Log.LogDebug($"[HostArenaPlatformSyncManager] Sending PlatformWarning (for client level {i + 1}) to {targetPlayer.NickName}.");
                         arenaPV.RPC("StateSetRPC", targetPlayer, global::Arena.States.PlatformWarning); // Use reflected arenaPV
                         yield return new WaitForSeconds(RPC_CATCHUP_DELAY);
 
                         if (!PhotonNetwork.CurrentRoom.Players.ContainsKey(targetPlayer.ActorNumber))
                         {
-                            LateJoinEntry.Log.LogWarning($"[HostArenaPlatformSyncManager] Player {targetPlayer.NickName} left during platform catch-up. Aborting.");
+                            LATE.Core.LatePlugin.Log.LogWarning($"[HostArenaPlatformSyncManager] Player {targetPlayer.NickName} left during platform catch-up. Aborting.");
                             yield break;
                         }
 
-                        LateJoinEntry.Log.LogDebug($"[HostArenaPlatformSyncManager] Sending PlatformRemove (for client level {i + 1}) to {targetPlayer.NickName}.");
+                        LATE.Core.LatePlugin.Log.LogDebug($"[HostArenaPlatformSyncManager] Sending PlatformRemove (for client level {i + 1}) to {targetPlayer.NickName}.");
                         arenaPV.RPC("StateSetRPC", targetPlayer, global::Arena.States.PlatformRemove); // Use reflected arenaPV
                         yield return new WaitForSeconds(RPC_CATCHUP_DELAY);
                     }
-                    LateJoinEntry.Log.LogInfo($"[HostArenaPlatformSyncManager] Finished replaying {hostArenaLevel} platform stages for {targetPlayer.NickName}.");
+                    LATE.Core.LatePlugin.Log.LogInfo($"[HostArenaPlatformSyncManager] Finished replaying {hostArenaLevel} platform stages for {targetPlayer.NickName}.");
                 }
                 else
                 {
-                    LateJoinEntry.Log.LogInfo($"[HostArenaPlatformSyncManager] No platform stages (hostArenaLevel = 0) to replay for {targetPlayer.NickName}.");
+                    LATE.Core.LatePlugin.Log.LogInfo($"[HostArenaPlatformSyncManager] No platform stages (hostArenaLevel = 0) to replay for {targetPlayer.NickName}.");
                 }
 
                 // Re-fetch current state in case it changed during the yield loop (unlikely for Arena but good practice)
@@ -1475,11 +1475,11 @@ namespace LATE
                     catch { /* Already logged */ }
                 }
 
-                LateJoinEntry.Log.LogInfo($"[HostArenaPlatformSyncManager] Setting final CURRENT Arena state ({hostCurrentArenaState}) for {targetPlayer.NickName}.");
+                LATE.Core.LatePlugin.Log.LogInfo($"[HostArenaPlatformSyncManager] Setting final CURRENT Arena state ({hostCurrentArenaState}) for {targetPlayer.NickName}.");
                 arenaPV.RPC("StateSetRPC", targetPlayer, hostCurrentArenaState); // Use reflected arenaPV
                 yield return new WaitForSeconds(RPC_CATCHUP_DELAY);
 
-                LateJoinEntry.Log.LogInfo($"[HostArenaPlatformSyncManager] Arena platform catch-up sequence complete for {targetPlayer.NickName}. Their Arena.level should now be approx {hostArenaLevel}.");
+                LATE.Core.LatePlugin.Log.LogInfo($"[HostArenaPlatformSyncManager] Arena platform catch-up sequence complete for {targetPlayer.NickName}. Their Arena.level should now be approx {hostArenaLevel}.");
             }
         }
 
@@ -1494,22 +1494,22 @@ namespace LATE
             string targetNickname = targetPlayer?.NickName ?? $"ActorNr {targetPlayer?.ActorNumber ?? -1}";
             if (targetPlayer == null)
             {
-                LateJoinEntry.Log.LogWarning("[LateJoinManager][Arena Sync] Target player is null. Aborting sync.");
+                LATE.Core.LatePlugin.Log.LogWarning("[LateJoinManager][Arena Sync] Target player is null. Aborting sync.");
                 return;
             }
 
-            LateJoinEntry.Log.LogInfo($"[LateJoinManager][Arena Sync] Starting FULL Arena state sync for {targetNickname} (ActorNr: {targetPlayer.ActorNumber}).");
+            LATE.Core.LatePlugin.Log.LogInfo($"[LateJoinManager][Arena Sync] Starting FULL Arena state sync for {targetNickname} (ActorNr: {targetPlayer.ActorNumber}).");
 
             if (!Utilities.IsRealMasterClient())
             {
-                LateJoinEntry.Log.LogDebug("[LateJoinManager][Arena Sync] Not Master Client. Skipping host-specific sync.");
+                LATE.Core.LatePlugin.Log.LogDebug("[LateJoinManager][Arena Sync] Not Master Client. Skipping host-specific sync.");
                 return;
             }
 
             Arena arenaInstance = Arena.instance;
             if (arenaInstance == null)
             {
-                LateJoinEntry.Log.LogWarning("[LateJoinManager][Arena Sync] Arena.instance is null. Aborting.");
+                LATE.Core.LatePlugin.Log.LogWarning("[LateJoinManager][Arena Sync] Arena.instance is null. Aborting.");
                 return;
             }
 
@@ -1523,16 +1523,16 @@ namespace LATE
                 }
                 catch (Exception ex)
                 {
-                    LateJoinEntry.Log.LogError($"[LateJoinManager][Arena Sync] Error reflecting Arena.photonView: {ex}");
+                    LATE.Core.LatePlugin.Log.LogError($"[LateJoinManager][Arena Sync] Error reflecting Arena.photonView: {ex}");
                     return; // Critical failure
                 }
             }
             if (arenaPV == null)
             {
-                LateJoinEntry.Log.LogWarning("[LateJoinManager][Arena Sync] Arena PhotonView is null after reflection. Aborting.");
+                LATE.Core.LatePlugin.Log.LogWarning("[LateJoinManager][Arena Sync] Arena PhotonView is null after reflection. Aborting.");
                 return;
             }
-            LateJoinEntry.Log.LogDebug("[LateJoinManager][Arena Sync] Base pre-checks passed, Arena PV obtained.");
+            LATE.Core.LatePlugin.Log.LogDebug("[LateJoinManager][Arena Sync] Base pre-checks passed, Arena PV obtained.");
 
 
             // --- 1. Sync One-Off States (Cage, Winner, Pedestal) ---
@@ -1545,17 +1545,17 @@ namespace LATE
                 {
                     object fieldValue = Utilities.arenaCrownCageDestroyedField.GetValue(arenaInstance);
                     if (fieldValue is bool) hostCageIsDestroyed = (bool)fieldValue;
-                    else LateJoinEntry.Log.LogWarning($"[LateJoinManager][Arena Sync] Reflected 'crownCageDestroyed' was not bool.");
+                    else LATE.Core.LatePlugin.Log.LogWarning($"[LateJoinManager][Arena Sync] Reflected 'crownCageDestroyed' was not bool.");
                 }
-                catch (Exception ex) { LateJoinEntry.Log.LogWarning($"[LateJoinManager][Arena Sync] Error reflecting 'crownCageDestroyed': {ex}"); }
+                catch (Exception ex) { LATE.Core.LatePlugin.Log.LogWarning($"[LateJoinManager][Arena Sync] Error reflecting 'crownCageDestroyed': {ex}"); }
             }
-            else { LateJoinEntry.Log.LogWarning("[LateJoinManager][Arena Sync] Utilities.arenaCrownCageDestroyedField is null."); }
+            else { LATE.Core.LatePlugin.Log.LogWarning("[LateJoinManager][Arena Sync] Utilities.arenaCrownCageDestroyedField is null."); }
 
             if (hostCageIsDestroyed)
             {
-                LateJoinEntry.Log.LogInfo($"[LateJoinManager][Arena Sync] Sending DestroyCrownCageRPC to {targetNickname}.");
+                LATE.Core.LatePlugin.Log.LogInfo($"[LateJoinManager][Arena Sync] Sending DestroyCrownCageRPC to {targetNickname}.");
                 try { arenaPV.RPC("DestroyCrownCageRPC", targetPlayer); } // Use reflected arenaPV
-                catch (Exception ex) { LateJoinEntry.Log.LogError($"[LateJoinManager][Arena Sync] Failed DestroyCrownCageRPC: {ex}"); }
+                catch (Exception ex) { LATE.Core.LatePlugin.Log.LogError($"[LateJoinManager][Arena Sync] Failed DestroyCrownCageRPC: {ex}"); }
             }
 
             // Sync Winner
@@ -1563,18 +1563,18 @@ namespace LATE
             if (Utilities.arenaWinnerPlayerField != null) // Use Utilities field
             {
                 try { currentWinner = Utilities.arenaWinnerPlayerField.GetValue(arenaInstance) as PlayerAvatar; }
-                catch (Exception ex) { LateJoinEntry.Log.LogWarning($"[LateJoinManager][Arena Sync] Error reflecting 'winnerPlayer': {ex}"); }
+                catch (Exception ex) { LATE.Core.LatePlugin.Log.LogWarning($"[LateJoinManager][Arena Sync] Error reflecting 'winnerPlayer': {ex}"); }
             }
-            else { LateJoinEntry.Log.LogWarning("[LateJoinManager][Arena Sync] Utilities.arenaWinnerPlayerField is null."); }
+            else { LATE.Core.LatePlugin.Log.LogWarning("[LateJoinManager][Arena Sync] Utilities.arenaWinnerPlayerField is null."); }
 
             if (currentWinner != null)
             {
                 int winnerPhysGrabberViewID = Utilities.GetPhysGrabberViewId(currentWinner);
                 if (winnerPhysGrabberViewID > 0)
                 {
-                    LateJoinEntry.Log.LogInfo($"[LateJoinManager][Arena Sync] Sending CrownGrabRPC to {targetNickname}.");
+                    LATE.Core.LatePlugin.Log.LogInfo($"[LateJoinManager][Arena Sync] Sending CrownGrabRPC to {targetNickname}.");
                     try { arenaPV.RPC("CrownGrabRPC", targetPlayer, winnerPhysGrabberViewID); } // Use reflected arenaPV
-                    catch (Exception ex) { LateJoinEntry.Log.LogError($"[LateJoinManager][Arena Sync] Failed CrownGrabRPC: {ex}"); }
+                    catch (Exception ex) { LATE.Core.LatePlugin.Log.LogError($"[LateJoinManager][Arena Sync] Failed CrownGrabRPC: {ex}"); }
                 }
             }
 
@@ -1599,7 +1599,7 @@ namespace LATE
                         }
                         catch (Exception ex)
                         {
-                            LateJoinEntry.Log.LogError($"[LateJoinManager][Arena Sync] Error reflecting 'isDisabled' for pedestal: {ex}");
+                            LATE.Core.LatePlugin.Log.LogError($"[LateJoinManager][Arena Sync] Error reflecting 'isDisabled' for pedestal: {ex}");
                             actualLivePlayerCount++; // Or some default handling
                         }
                     }
@@ -1607,13 +1607,13 @@ namespace LATE
             }
 
 
-            LateJoinEntry.Log.LogInfo($"[LateJoinManager][Arena Sync] Calculated actual live player count: {actualLivePlayerCount}. Sending PlayerKilledRPC to {targetNickname}.");
+            LATE.Core.LatePlugin.Log.LogInfo($"[LateJoinManager][Arena Sync] Calculated actual live player count: {actualLivePlayerCount}. Sending PlayerKilledRPC to {targetNickname}.");
             try { arenaPV.RPC("PlayerKilledRPC", targetPlayer, actualLivePlayerCount); } // Use reflected arenaPV
-            catch (Exception ex) { LateJoinEntry.Log.LogError($"[LateJoinManager][Arena Sync] Error sending PlayerKilledRPC: {ex}"); }
+            catch (Exception ex) { LATE.Core.LatePlugin.Log.LogError($"[LateJoinManager][Arena Sync] Error sending PlayerKilledRPC: {ex}"); }
 
 
             // --- 2. Sync Arena Platform States ---
-            LateJoinEntry.Log.LogInfo($"[LateJoinManager][Arena Sync] Initiating Arena Platform catch-up sequence for {targetNickname}.");
+            LATE.Core.LatePlugin.Log.LogInfo($"[LateJoinManager][Arena Sync] Initiating Arena Platform catch-up sequence for {targetNickname}.");
             HostArenaPlatformSyncManager syncManager = HostArenaPlatformSyncManager.Instance;
             if (syncManager != null)
             {
@@ -1622,10 +1622,10 @@ namespace LATE
             }
             else
             {
-                LateJoinEntry.Log.LogError("[LateJoinManager][Arena Sync] HostArenaPlatformSyncManager instance is null! Cannot sync platforms.");
+                LATE.Core.LatePlugin.Log.LogError("[LateJoinManager][Arena Sync] HostArenaPlatformSyncManager instance is null! Cannot sync platforms.");
             }
 
-            LateJoinEntry.Log.LogInfo($"[LateJoinManager][Arena Sync] Finished Arena state sync (main part) for {targetNickname}. Platform sync running in background.");
+            LATE.Core.LatePlugin.Log.LogInfo($"[LateJoinManager][Arena Sync] Finished Arena state sync (main part) for {targetNickname}. Platform sync running in background.");
         }
 
         #region Extraction Point Item Resync Coroutine
@@ -1641,14 +1641,14 @@ namespace LATE
         {
             string targetNickname = targetPlayer?.NickName ?? "<Unknown>";
             string epName = epToSync?.name ?? "<Unknown EP>";
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[LateJoinManager][Item Resync] Starting for {targetNickname} in EP '{epName}'"
             );
 
             // Safety Checks
             if (targetPlayer == null || epToSync == null || !Utilities.IsRealMasterClient())
             {
-                LateJoinEntry.Log.LogWarning(
+                LATE.Core.LatePlugin.Log.LogWarning(
                     "[LateJoinManager][Item Resync] Aborting: Invalid state."
                 );
                 yield break;
@@ -1658,7 +1658,7 @@ namespace LATE
                 || !PhotonNetwork.CurrentRoom.Players.ContainsKey(targetPlayer.ActorNumber)
             )
             {
-                LateJoinEntry.Log.LogWarning(
+                LATE.Core.LatePlugin.Log.LogWarning(
                     $"[LateJoinManager][Item Resync] Aborting: Player {targetNickname} left."
                 );
                 yield break;
@@ -1675,7 +1675,7 @@ namespace LATE
             // --- Identify Items Based on Scene ---
             if (isShop)
             {
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     "[LateJoinManager][Item Resync] " + "Identifying items from ShopManager."
                 );
                 if (ShopManager.instance != null && Utilities.smShoppingListField != null) // Check instance and reflection field
@@ -1699,7 +1699,7 @@ namespace LATE
                         }
                         else
                         {
-                            LateJoinEntry.Log.LogWarning(
+                            LATE.Core.LatePlugin.Log.LogWarning(
                                 "[LateJoinManager][Item Resync] Reflected shoppingList "
                                     + "is null or not a List<ItemAttributes>."
                             );
@@ -1707,14 +1707,14 @@ namespace LATE
                     }
                     catch (Exception ex)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[LateJoinManager][Item Resync] Error reflecting or accessing ShopManager.shoppingList: {ex}"
                         );
                     }
                 }
                 else
                 {
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         "[LateJoinManager][Item Resync] ShopManager instance or "
                             + "shoppingList reflection field is null."
                     );
@@ -1722,7 +1722,7 @@ namespace LATE
             }
             else // Level scene
             {
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     "[LateJoinManager][Item Resync] Identifying items from "
                         + "RoundDirector.dollarHaulList."
                 );
@@ -1734,7 +1734,7 @@ namespace LATE
                 }
                 else
                 {
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         "[LateJoinManager][Item Resync] RoundDirector instance or "
                             + "dollarHaulList is null."
                     );
@@ -1743,13 +1743,13 @@ namespace LATE
 
             if (itemsToResync.Count == 0)
             {
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"[LateJoinManager][Item Resync] No items identified in EP '{epName}'."
                 );
                 yield break;
             }
 
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[LateJoinManager][Item Resync] Found {itemsToResync.Count} items in '{epName}' for {targetNickname}."
             );
 
@@ -1765,7 +1765,7 @@ namespace LATE
 
                 if (pgo == null || pv == null)
                 {
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         $"[LateJoinManager][Item Resync] Item '{itemGO.name}' missing PGO/PV. Skipping."
                     );
                     continue;
@@ -1773,7 +1773,7 @@ namespace LATE
 
                 if (!pv.IsMine)
                 {
-                    LateJoinEntry.Log.LogDebug(
+                    LATE.Core.LatePlugin.Log.LogDebug(
                         $"[LateJoinManager][Item Resync] Requesting ownership of {itemGO.name} (ViewID: {pv.ViewID})."
                     );
                     pv.RequestOwnership();
@@ -1787,21 +1787,21 @@ namespace LATE
 
                 try
                 {
-                    LateJoinEntry.Log.LogDebug(
+                    LATE.Core.LatePlugin.Log.LogDebug(
                         $"[LateJoinManager][Item Resync] Teleporting {itemGO.name} (ViewID: {pv.ViewID}) AWAY."
                     );
                     pgo.Teleport(farAwayPosition, itemGO.transform.rotation);
                 }
                 catch (Exception ex)
                 {
-                    LateJoinEntry.Log.LogError(
+                    LATE.Core.LatePlugin.Log.LogError(
                         $"[LateJoinManager][Item Resync] Error teleporting {itemGO.name} AWAY: {ex}"
                     );
                 }
             }
 
             // --- Wait Briefly ---
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[LateJoinManager][Item Resync] Waiting {itemResyncDelay}s..."
             );
             yield return new WaitForSeconds(itemResyncDelay);
@@ -1812,13 +1812,13 @@ namespace LATE
                 || !PhotonNetwork.CurrentRoom.Players.ContainsKey(targetPlayer.ActorNumber)
             )
             {
-                LateJoinEntry.Log.LogWarning(
+                LATE.Core.LatePlugin.Log.LogWarning(
                     $"[LateJoinManager][Item Resync] Aborting teleport BACK: Player {targetNickname} left."
                 );
                 yield break;
             }
 
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[LateJoinManager][Item Resync] Teleporting {validPhysObjects.Count} items back for {targetNickname}."
             );
             foreach (PhysGrabObject? pgo in validPhysObjects)
@@ -1834,33 +1834,33 @@ namespace LATE
                 {
                     if (!pv.IsMine)
                     {
-                        LateJoinEntry.Log.LogWarning(
+                        LATE.Core.LatePlugin.Log.LogWarning(
                             $"[LateJoinManager][Item Resync] Lost ownership of {pgo.gameObject.name}?"
                         );
                     }
                     try
                     {
-                        LateJoinEntry.Log.LogDebug(
+                        LATE.Core.LatePlugin.Log.LogDebug(
                             $"[LateJoinManager][Item Resync] Teleporting {pgo.gameObject.name} (ViewID: {viewID}) BACK to {originalTransform.pos}."
                         );
                         pgo.Teleport(originalTransform.pos, originalTransform.rot);
                     }
                     catch (Exception ex)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[LateJoinManager][Item Resync] Error teleporting {pgo.gameObject.name} BACK: {ex}"
                         );
                     }
                 }
                 else
                 {
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         $"[LateJoinManager][Item Resync] No original transform for ViewID {viewID}."
                     );
                 }
             }
 
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[LateJoinManager][Item Resync] Finished item resync sequence for {targetNickname} in EP '{epName}'."
             );
         }

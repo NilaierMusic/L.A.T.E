@@ -19,7 +19,7 @@ namespace LATE
         private static void ForEachEnemy(Action<Enemy, PhotonView?> action)
         {
             Enemy[] enemies = Object.FindObjectsOfType<Enemy>(); // includeInactive = false (default)
-            LateJoinEntry.Log.LogDebug(
+            LATE.Core.LatePlugin.Log.LogDebug(
                 $"[EnemyManager] ForEachEnemy found {enemies.Length} active enemies."
             ); // Adjusted log for clarity
 
@@ -40,7 +40,7 @@ namespace LATE
                 }
                 catch (Exception ex)
                 {
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         $"[EnemyManager] Error reflecting Enemy.photonView for '{enemy.gameObject.name}': {ex.Message}"
                     );
                 }
@@ -51,7 +51,7 @@ namespace LATE
                     enemyPv = enemy.GetComponent<PhotonView>();
                     if (enemyPv == null)
                     {
-                        LateJoinEntry.Log.LogWarning(
+                        LATE.Core.LatePlugin.Log.LogWarning(
                             $"[EnemyManager] Could not get PhotonView for active enemy '{enemy.gameObject.name}' via reflection or GetComponent. Skipping action."
                         );
                         continue;
@@ -64,7 +64,7 @@ namespace LATE
                 }
                 catch (Exception ex)
                 {
-                    LateJoinEntry.Log.LogError(
+                    LATE.Core.LatePlugin.Log.LogError(
                         $"[EnemyManager] Enemy action failed on '{enemy.gameObject?.name ?? "NULL"}' (ViewID: {enemyPv?.ViewID ?? 0}): {ex}"
                     );
                 }
@@ -83,21 +83,21 @@ namespace LATE
             // ── Sanity / early-outs ─────────────────────────────────────────
             if (newPlayer == null)
             {
-                LateJoinEntry.Log.LogWarning(
+                LATE.Core.LatePlugin.Log.LogWarning(
                     "[EnemyManager] NotifyEnemiesOfNewPlayer called with null player."
                 );
                 return;
             }
             if (!IsMaster())
             {
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     $"[EnemyManager] Not MasterClient, skipping new-player notification for {newPlayer?.NickName ?? "<null>"}."
                 );
                 return;
             }
             if (newPlayerAvatar == null)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[EnemyManager] newPlayerAvatar is null for {newPlayer.NickName}. Aborting."
                 );
                 return;
@@ -107,14 +107,14 @@ namespace LATE
             PhotonView? avatarPv = Utilities.GetPhotonView(newPlayerAvatar); // Use helper
             if (avatarPv == null)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[EnemyManager] Could not get PhotonView for {newPlayer.NickName}'s Avatar."
                 );
                 return;
             }
             int avatarViewId = avatarPv.ViewID;
 
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[EnemyManager] Notifying ACTIVE enemies about new player {newPlayer.NickName} (ViewID {avatarViewId})."
             );
 
@@ -127,20 +127,20 @@ namespace LATE
                     {
                         enemy.PlayerAdded(avatarViewId); // Call the public method
                         updated++;
-                        LateJoinEntry.Log.LogDebug(
+                        LATE.Core.LatePlugin.Log.LogDebug(
                             $"[EnemyManager] PlayerAdded({avatarViewId}) called on ACTIVE enemy '{enemy.gameObject.name}' (Enemy ViewID: {enemyPv?.ViewID ?? 0})."
                         );
                     }
                     catch (Exception ex)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[EnemyManager] Error calling PlayerAdded on '{enemy.gameObject.name}': {ex.Message}"
                         );
                     }
                 }
             );
 
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[EnemyManager] Finished notifying {updated} active enemies about {newPlayer.NickName}."
             );
         }
@@ -155,14 +155,14 @@ namespace LATE
             // ── Sanity / early-outs ─────────────────────────────────────────
             if (leavingPlayer == null)
             {
-                LateJoinEntry.Log.LogWarning(
+                LATE.Core.LatePlugin.Log.LogWarning(
                     "[EnemyManager] NotifyEnemiesOfLeavingPlayer called with null player."
                 );
                 return;
             }
             if (!IsMaster())
             {
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     $"[EnemyManager] Not MasterClient, skipping leaving-notification for {leavingPlayer?.NickName ?? "<null>"}."
                 );
                 return;
@@ -179,14 +179,14 @@ namespace LATE
             if (avatarPv == null)
             {
                 // This is less critical than joining, as the player is gone. Might happen if they leave before avatar fully despawns.
-                LateJoinEntry.Log.LogWarning(
+                LATE.Core.LatePlugin.Log.LogWarning(
                     $"[EnemyManager] Could not resolve Avatar ViewID for leaving player {leavingPlayer.NickName}. Skipping enemy notification (player likely gone)."
                 );
                 return;
             }
             int avatarViewId = avatarPv.ViewID;
 
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[EnemyManager] Notifying ACTIVE enemies that {leavingPlayer.NickName} (ViewID {avatarViewId}) left."
             );
 
@@ -203,20 +203,20 @@ namespace LATE
                     {
                         enemy.PlayerRemoved(avatarViewId); // Call public method
                         updated++;
-                        LateJoinEntry.Log.LogDebug(
+                        LATE.Core.LatePlugin.Log.LogDebug(
                             $"[EnemyManager] PlayerRemoved({avatarViewId}) called on ACTIVE enemy '{enemy.gameObject.name}' (Enemy ViewID: {enemyPv?.ViewID ?? 0}). WasTarget: {wasTarget}"
                         );
                     }
                     catch (Exception ex)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[EnemyManager] Error calling PlayerRemoved on '{enemy.gameObject.name}': {ex.Message}"
                         );
                     }
                 }
             );
 
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[EnemyManager] Finished notifying {updated} active enemies about {leavingPlayer.NickName} leaving."
             );
         }
@@ -232,14 +232,14 @@ namespace LATE
         {
             if (!IsMaster())
             {
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     "[EnemyManager] Not MasterClient, skipping SyncAllEnemyStatesForPlayer."
                 );
                 return;
             }
             if (targetPlayer == null)
             {
-                LateJoinEntry.Log.LogWarning(
+                LATE.Core.LatePlugin.Log.LogWarning(
                     "[EnemyManager] SyncAllEnemyStatesForPlayer called with null targetPlayer."
                 );
                 return;
@@ -248,14 +248,14 @@ namespace LATE
             // --- Reflection Check ---
             if (Utilities.enemy_EnemyParentField == null || Utilities.ep_SpawnedField == null)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     "[EnemyManager] CRITICAL REFLECTION FAILURE: Cannot find required internal fields (Enemy.EnemyParent, EnemyParent.Spawned, EnemyParent.photonView). Aborting enemy sync."
                 );
                 return;
             }
 
             string nick = targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[EnemyManager] === Starting FULL enemy state sync for {nick} using EnemyParent RPCs (with reflection) ==="
             );
 
@@ -267,7 +267,7 @@ namespace LATE
             int otherStateSyncedCount = 0;
 
             Enemy[] allEnemies = Object.FindObjectsOfType<Enemy>(true);
-            LateJoinEntry.Log.LogDebug(
+            LATE.Core.LatePlugin.Log.LogDebug(
                 $"[EnemyManager] Found {allEnemies.Length} total Enemy components (including inactive) for state sync."
             );
 
@@ -276,7 +276,7 @@ namespace LATE
                 processedCount++;
                 if (enemy == null || enemy.gameObject == null)
                 {
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         $"[EnemyManager] Encountered null enemy instance at index {processedCount - 1}. Skipping."
                     );
                     continue;
@@ -297,12 +297,12 @@ namespace LATE
                         enemyParent = enemy.GetComponentInParent<EnemyParent>(); // Fallback
                         if (enemyParent == null)
                         {
-                            LateJoinEntry.Log.LogWarning(
+                            LATE.Core.LatePlugin.Log.LogWarning(
                                 $"[EnemyManager] Enemy '{enemyName}' has no EnemyParent component (checked reflection and hierarchy). Skipping sync."
                             );
                             continue;
                         }
-                        LateJoinEntry.Log.LogDebug(
+                        LATE.Core.LatePlugin.Log.LogDebug(
                             $"[EnemyManager] Used GetComponentInParent fallback for EnemyParent on '{enemyName}'."
                         );
                     }
@@ -311,7 +311,7 @@ namespace LATE
                     parentPv = enemyParent.GetComponent<PhotonView>();
                     if (parentPv == null)
                     {
-                        LateJoinEntry.Log.LogWarning(
+                        LATE.Core.LatePlugin.Log.LogWarning(
                             $"[EnemyManager] Could not get PhotonView component for EnemyParent of '{enemyName}'. Skipping sync."
                         );
                         continue; // We absolutely need this PV for RPCs
@@ -320,7 +320,7 @@ namespace LATE
                 catch (Exception ex)
                 {
                     // This catch now primarily covers the reflection for enemy_EnemyParentField
-                    LateJoinEntry.Log.LogError(
+                    LATE.Core.LatePlugin.Log.LogError(
                         $"[EnemyManager] Reflection error getting EnemyParent for '{enemyName}': {ex}. Skipping sync."
                     );
                     continue;
@@ -338,7 +338,7 @@ namespace LATE
                 }
                 catch (Exception pvEx)
                 {
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         $"[EnemyManager] Error reflecting Enemy.photonView for '{enemyName}': {pvEx.Message}"
                     );
                 }
@@ -348,13 +348,13 @@ namespace LATE
                     enemyPv = enemy.GetComponent<PhotonView>(); // Final fallback
                     if (enemyPv == null)
                     {
-                        LateJoinEntry.Log.LogWarning(
+                        LATE.Core.LatePlugin.Log.LogWarning(
                             $"[EnemyManager] Could not get Enemy's own PhotonView for '{enemyName}'. Skipping detailed state sync."
                         );
                     }
                     else
                     {
-                        LateJoinEntry.Log.LogDebug(
+                        LATE.Core.LatePlugin.Log.LogDebug(
                             $"[EnemyManager] Used GetComponent fallback for Enemy PhotonView on '{enemyName}'."
                         );
                     }
@@ -373,14 +373,14 @@ namespace LATE
                         }
                         else
                         {
-                            LateJoinEntry.Log.LogWarning(
+                            LATE.Core.LatePlugin.Log.LogWarning(
                                 $"[EnemyManager] Reflected EnemyParent.Spawned for '{enemyName}' was not a bool (Type: {spawnedValue?.GetType()}). Assuming false."
                             );
                         }
                     }
                     catch (Exception spawnEx)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[EnemyManager] Reflection error getting EnemyParent.Spawned for '{enemyName}': {spawnEx}. Assuming false."
                         );
                         hostIsSpawned = false; // Default to despawned on error
@@ -389,20 +389,20 @@ namespace LATE
                     // --- 2. Send Explicit Spawn/Despawn RPC via EnemyParent PV ---
                     if (hostIsSpawned)
                     {
-                        LateJoinEntry.Log.LogDebug(
+                        LATE.Core.LatePlugin.Log.LogDebug(
                             $"[EnemyManager] Enemy '{enemyName}' is SPAWNED on host. Sending SpawnRPC to {nick}. (Parent PV: {parentPv.ViewID})"
                         );
                         parentPv.RPC("SpawnRPC", targetPlayer);
                         spawnRpcSentCount++;
 
                         // --- 3. Sync Detailed State ONLY for Spawned Enemies ---
-                        LateJoinEntry.Log.LogDebug(
+                        LATE.Core.LatePlugin.Log.LogDebug(
                             $"[EnemyManager] Syncing detailed state for spawned enemy '{enemyName}' (Enemy PV: {enemyPv?.ViewID ?? 0})..."
                         );
 
                         if (enemyPv == null)
                         {
-                            LateJoinEntry.Log.LogWarning(
+                            LATE.Core.LatePlugin.Log.LogWarning(
                                 $"[EnemyManager]   Skipping detailed sync for '{enemyName}' because its own PhotonView is missing."
                             );
                             continue;
@@ -417,7 +417,7 @@ namespace LATE
                             && hostTargetViewId > 0
                         )
                         {
-                            LateJoinEntry.Log.LogDebug(
+                            LATE.Core.LatePlugin.Log.LogDebug(
                                 $"[EnemyManager]   Enemy '{enemyName}' TargetPlayerViewID {hostTargetViewId} (Should be synced by base Enemy serialization)."
                             );
                         }
@@ -435,13 +435,13 @@ namespace LATE
                                 enemyPv.RPC("UpdateStateRPC", targetPlayer, hostState);
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemyAnimal state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemyAnimal state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -476,20 +476,20 @@ namespace LATE
                                         hostFuseActive,
                                         hostFuseLerp
                                     );
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemyBang fuse state: Active={hostFuseActive}, Lerp={hostFuseLerp:F2}"
                                     );
                                     otherStateSyncedCount++;
                                 }
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemyBang state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemyBang state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -513,7 +513,7 @@ namespace LATE
                                     bool hostMoveFast = (bool)
                                         moveFastField.GetValue(beamerController);
                                     enemyPv.RPC("MoveFastRPC", targetPlayer, hostMoveFast);
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemyBeamer moveFast state: {hostMoveFast}"
                                     );
                                     otherStateSyncedCount++;
@@ -531,7 +531,7 @@ namespace LATE
                                         targetPlayer,
                                         hostTarget.photonView.ViewID
                                     );
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemyBeamer target: {hostTarget.name}"
                                     );
                                     otherStateSyncedCount++;
@@ -539,13 +539,13 @@ namespace LATE
 
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemyBeamer state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemyBeamer state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -572,20 +572,20 @@ namespace LATE
                                         targetPlayer,
                                         hostTarget.photonView.ViewID
                                     );
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemyBowtie notice for target: {hostTarget.name}"
                                     );
                                     otherStateSyncedCount++;
                                 }
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemyBowtie state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemyBowtie state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -613,20 +613,20 @@ namespace LATE
                                         targetPlayer,
                                         hostTarget.photonView.ViewID
                                     );
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemyCeilingEye target: {hostTarget.name}"
                                     );
                                     otherStateSyncedCount++;
                                 }
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemyCeilingEye state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemyCeilingEye state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -653,20 +653,20 @@ namespace LATE
                                         targetPlayer,
                                         hostTarget.photonView.ViewID
                                     );
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemyDuck target: {hostTarget.name}"
                                     );
                                     otherStateSyncedCount++;
                                 }
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemyDuck state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemyDuck state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -693,7 +693,7 @@ namespace LATE
                                         targetPlayer,
                                         hostTarget.photonView.ViewID
                                     );
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemyFloater target: {hostTarget.name}"
                                     );
                                     otherStateSyncedCount++;
@@ -709,7 +709,7 @@ namespace LATE
                                             targetPlayer,
                                             hostTarget.photonView.ViewID
                                         );
-                                        LateJoinEntry.Log.LogDebug(
+                                        LATE.Core.LatePlugin.Log.LogDebug(
                                             $"[EnemyManager]   Synced EnemyFloater notice RPC for target: {hostTarget.name}"
                                         );
                                         otherStateSyncedCount++;
@@ -717,13 +717,13 @@ namespace LATE
                                 }
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemyFloater state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemyFloater state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -739,13 +739,13 @@ namespace LATE
                                 enemyPv.RPC("UpdateStateRPC", targetPlayer, hostState);
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemyGnome state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemyGnome state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -772,20 +772,20 @@ namespace LATE
                                         targetPlayer,
                                         hostTarget.photonView.ViewID
                                     );
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemyHidden target: {hostTarget.name}"
                                     );
                                     otherStateSyncedCount++;
                                 }
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemyHidden state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemyHidden state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -819,7 +819,7 @@ namespace LATE
                                         targetPlayer,
                                         hostInvestigatePoint
                                     );
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemyHunter investigate point: {hostInvestigatePoint}"
                                     );
                                     otherStateSyncedCount++;
@@ -833,20 +833,20 @@ namespace LATE
                                     bool hostMoveFast = (bool)
                                         moveFastField.GetValue(hunterController);
                                     enemyPv.RPC("MoveFastRPC", targetPlayer, hostMoveFast);
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemyHunter moveFast: {hostMoveFast}"
                                     );
                                     otherStateSyncedCount++;
                                 }
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemyHunter state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemyHunter state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -873,7 +873,7 @@ namespace LATE
                                         targetPlayer,
                                         hostTarget.photonView.ViewID
                                     );
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemyRobe target: {hostTarget.name}"
                                     );
                                     otherStateSyncedCount++;
@@ -888,7 +888,7 @@ namespace LATE
                                     bool hostIsOnScreen = (bool)
                                         isOnScreenField.GetValue(robeController);
                                     enemyPv.RPC("UpdateOnScreenRPC", targetPlayer, hostIsOnScreen);
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemyRobe isOnScreen: {hostIsOnScreen}"
                                     );
                                     otherStateSyncedCount++;
@@ -896,13 +896,13 @@ namespace LATE
 
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemyRobe state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemyRobe state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -929,20 +929,20 @@ namespace LATE
                                         targetPlayer,
                                         hostTarget.photonView.ViewID
                                     );
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemyRunner target: {hostTarget.name}"
                                     );
                                     otherStateSyncedCount++;
                                 }
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemyRunner state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemyRunner state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -969,20 +969,20 @@ namespace LATE
                                         targetPlayer,
                                         hostTarget.photonView.ViewID
                                     );
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemySlowMouth target: {hostTarget.name}"
                                     );
                                     otherStateSyncedCount++;
                                 }
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemySlowMouth state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemySlowMouth state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -1009,7 +1009,7 @@ namespace LATE
                                         targetPlayer,
                                         hostTarget.photonView.ViewID
                                     );
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemySlowWalker target: {hostTarget.name}"
                                     );
                                     otherStateSyncedCount++;
@@ -1021,7 +1021,7 @@ namespace LATE
                                             targetPlayer,
                                             hostTarget.photonView.ViewID
                                         );
-                                        LateJoinEntry.Log.LogDebug(
+                                        LATE.Core.LatePlugin.Log.LogDebug(
                                             $"[EnemyManager]   Synced EnemySlowWalker notice RPC."
                                         );
                                         otherStateSyncedCount++;
@@ -1029,13 +1029,13 @@ namespace LATE
                                 }
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemySlowWalker state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemySlowWalker state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -1063,20 +1063,20 @@ namespace LATE
                                         hostTarget.photonView.ViewID,
                                         true
                                     );
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemyThinMan target: {hostTarget.name}"
                                     );
                                     otherStateSyncedCount++;
                                 }
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemyThinMan state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemyThinMan state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -1103,20 +1103,20 @@ namespace LATE
                                         targetPlayer,
                                         hostTarget.photonView.ViewID
                                     );
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemyTumbler target: {hostTarget.name}"
                                     );
                                     otherStateSyncedCount++;
                                 }
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemyTumbler state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemyTumbler state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -1143,7 +1143,7 @@ namespace LATE
                                         targetPlayer,
                                         hostTarget.photonView.ViewID
                                     );
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemyUpscream target: {hostTarget.name}"
                                     );
                                     otherStateSyncedCount++;
@@ -1159,7 +1159,7 @@ namespace LATE
                                             targetPlayer,
                                             hostTarget.photonView.ViewID
                                         );
-                                        LateJoinEntry.Log.LogDebug(
+                                        LATE.Core.LatePlugin.Log.LogDebug(
                                             $"[EnemyManager]   Synced EnemyUpscream notice RPC."
                                         );
                                         otherStateSyncedCount++;
@@ -1167,13 +1167,13 @@ namespace LATE
                                 }
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemyUpscream state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemyUpscream state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -1202,7 +1202,7 @@ namespace LATE
                                         targetPlayer,
                                         hostTarget.photonView.ViewID
                                     );
-                                    LateJoinEntry.Log.LogDebug(
+                                    LATE.Core.LatePlugin.Log.LogDebug(
                                         $"[EnemyManager]   Synced EnemyValuableThrower target: {hostTarget.name}"
                                     );
                                     otherStateSyncedCount++;
@@ -1218,7 +1218,7 @@ namespace LATE
                                             targetPlayer,
                                             hostTarget.photonView.ViewID
                                         );
-                                        LateJoinEntry.Log.LogDebug(
+                                        LATE.Core.LatePlugin.Log.LogDebug(
                                             $"[EnemyManager]   Synced EnemyValuableThrower notice RPC."
                                         );
                                         otherStateSyncedCount++;
@@ -1226,13 +1226,13 @@ namespace LATE
                                 }
                                 specificStateSyncedCount++;
                                 specificStateSynced = true;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced EnemyValuableThrower state '{hostState}'."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error syncing EnemyValuableThrower state for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -1242,7 +1242,7 @@ namespace LATE
 
                         if (!specificStateSynced)
                         {
-                            LateJoinEntry.Log.LogDebug(
+                            LATE.Core.LatePlugin.Log.LogDebug(
                                 $"[EnemyManager]   No specific enemy type found or synced for '{enemyName}'. Base state from EnemyParent: Spawned."
                             );
                         }
@@ -1255,13 +1255,13 @@ namespace LATE
                                 // FreezeRPC is on Enemy, so use its PV
                                 enemyPv.RPC("FreezeRPC", targetPlayer, enemy.FreezeTimer);
                                 freezeSyncedCount++;
-                                LateJoinEntry.Log.LogDebug(
+                                LATE.Core.LatePlugin.Log.LogDebug(
                                     $"[EnemyManager]   Synced FreezeTimer ({enemy.FreezeTimer:F1}s)."
                                 );
                             }
                             catch (Exception ex)
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[EnemyManager] Error sending FreezeRPC for {enemyName}: {ex.Message}"
                                 );
                             }
@@ -1270,7 +1270,7 @@ namespace LATE
                     else // !hostIsSpawned
                     {
                         // Host considers this enemy DESPAWNED. Ensure client has it despawned.
-                        LateJoinEntry.Log.LogDebug(
+                        LATE.Core.LatePlugin.Log.LogDebug(
                             $"[EnemyManager] Enemy '{enemyName}' is DESPAWNED on host. Sending DespawnRPC to {nick}. (Parent PV: {parentPv.ViewID})"
                         );
                         parentPv.RPC("DespawnRPC", targetPlayer);
@@ -1281,19 +1281,19 @@ namespace LATE
                 }
                 catch (Exception ex)
                 {
-                    LateJoinEntry.Log.LogError(
+                    LATE.Core.LatePlugin.Log.LogError(
                         $"[EnemyManager] CRITICAL error processing enemy '{enemyName}' (Parent PV: {parentPv?.ViewID ?? 0}) for state sync: {ex}"
                     );
                 }
             }
 
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[EnemyManager] === Finished FULL enemy state sync for {nick}. ==="
             );
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"    Processed: {processedCount}, SpawnRPCs Sent: {spawnRpcSentCount}, DespawnRPCs Sent: {despawnRpcSentCount}"
             );
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"    SpecificStates Synced (for Spawned): {specificStateSyncedCount}, Freezes Synced: {freezeSyncedCount}, OtherStates Synced: {otherStateSyncedCount}"
             );
         }

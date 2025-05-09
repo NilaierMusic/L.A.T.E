@@ -55,7 +55,7 @@ namespace LATE
         /// </summary>
         private static void TryClearPhotonCaches()
         {
-            LateJoinEntry.Log.LogInfo("[Clear Cache] Clearing Photon cache for scene objects.");
+            LATE.Core.LatePlugin.Log.LogInfo("[Clear Cache] Clearing Photon cache for scene objects.");
             try
             {
                 foreach (var photonView in Object.FindObjectsOfType<PhotonView>())
@@ -68,11 +68,11 @@ namespace LATE
                         continue;
                     Utilities.ClearPhotonCache(photonView);
                 }
-                LateJoinEntry.Log.LogInfo("[Clear Cache] Finished clearing scene object cache.");
+                LATE.Core.LatePlugin.Log.LogInfo("[Clear Cache] Finished clearing scene object cache.");
             }
             catch (Exception ex)
             {
-                LateJoinEntry.Log.LogError($"Error clearing Photon cache: {ex}");
+                LATE.Core.LatePlugin.Log.LogError($"Error clearing Photon cache: {ex}");
             }
         }
 
@@ -87,7 +87,7 @@ namespace LATE
             // --- Arena Exception Logic (Handles true failures leading to Arena) ---
             if (levelFailed && currentLevel == runManager.levelArena)
             {
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                    "[ShouldAllowLobbyJoin] Previous level failed, current level IS Arena. Allowing join based on Arena config."
                );
                 // Allow join ONLY if the Arena config setting is true.
@@ -101,7 +101,7 @@ namespace LATE
             {
                 if (!ConfigManager.LockLobbyOnLevelGenerationFailure.Value) // Check the new config option
                 {
-                    LateJoinEntry.Log.LogInfo(
+                    LATE.Core.LatePlugin.Log.LogInfo(
                        $"[ShouldAllowLobbyJoin] Level reported failure (current: '{currentLevel?.name ?? "NULL"}', not Arena), but 'LockLobbyOnLevelGenerationFailure' is FALSE. " +
                        "Proceeding to check scene-specific join rules as if no failure occurred."
                    );
@@ -109,7 +109,7 @@ namespace LATE
                 }
                 else // Config says TO lock on failure (default behavior)
                 {
-                    LateJoinEntry.Log.LogInfo(
+                    LATE.Core.LatePlugin.Log.LogInfo(
                        $"[ShouldAllowLobbyJoin] Level reported failure (current: '{currentLevel?.name ?? "NULL"}', not Arena) and 'LockLobbyOnLevelGenerationFailure' is TRUE. Disallowing join."
                    );
                     return false; // Disallow join
@@ -121,21 +121,21 @@ namespace LATE
             // If level did NOT fail (levelFailed was initially false)
             // OR if levelFailed was true but LockLobbyOnLevelGenerationFailure is false (and not Arena),
             // proceed with normal config checks based on the NEW level:
-            LateJoinEntry.Log.LogDebug(
+            LATE.Core.LatePlugin.Log.LogDebug(
                 $"[ShouldAllowLobbyJoin] Evaluating scene-specific join rules for current level '{currentLevel?.name ?? "NULL"}' (levelFailed considered as per config: {levelFailed && (currentLevel == runManager.levelArena || ConfigManager.LockLobbyOnLevelGenerationFailure.Value)})."
             );
 
             // Direct comparisons using RunManager level references
             if (currentLevel == runManager.levelShop && ConfigManager.AllowInShop.Value)
             {
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     "[ShouldAllowLobbyJoin] Allowing join: In Shop & Config allows."
                 );
                 return true;
             }
             if (currentLevel == runManager.levelLobby && ConfigManager.AllowInTruck.Value) // Truck/Lobby
             {
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     "[ShouldAllowLobbyJoin] Allowing join: In Truck/Lobby & Config allows."
                 );
                 return true;
@@ -143,28 +143,28 @@ namespace LATE
             // This now correctly handles non-failure case for Arena, OR if failure occurred but config allows proceeding
             if (currentLevel == runManager.levelArena && ConfigManager.AllowInArena.Value)
             {
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     "[ShouldAllowLobbyJoin] Allowing join: In Arena & Config allows."
                 );
                 return true;
             }
             if (currentLevel == runManager.levelLobbyMenu) // Always allow in the pre-game lobby menu
             {
-                LateJoinEntry.Log.LogDebug("[ShouldAllowLobbyJoin] Allowing join: In LobbyMenu.");
+                LATE.Core.LatePlugin.Log.LogDebug("[ShouldAllowLobbyJoin] Allowing join: In LobbyMenu.");
                 return true;
             }
 
             // Check if it's a "normal" run level by seeing if it's in the RunManager's list of levels
             if (currentLevel != null && runManager.levels.Contains(currentLevel) && ConfigManager.AllowInLevel.Value)
             {
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                    "[ShouldAllowLobbyJoin] Allowing join: In a standard Level & Config allows."
                );
                 return true;
             }
 
             // Default: Disallow join if no specific rule allows it
-            LateJoinEntry.Log.LogDebug(
+            LATE.Core.LatePlugin.Log.LogDebug(
                 $"[ShouldAllowLobbyJoin] No applicable allow condition met for level '{currentLevel?.name ?? "NULL"}'. Disallowing join."
             );
             return false;
@@ -186,17 +186,17 @@ namespace LATE
         )
         {
             #region Reset State and Tracking
-            LateJoinEntry.Log.LogDebug("[State Reset] Clearing trackers for new level.");
+            LATE.Core.LatePlugin.Log.LogDebug("[State Reset] Clearing trackers for new level.");
             spawnPositionAssigned.Clear();
             LateJoinManager.ResetSceneTracking();
             DestructionManager.ResetState();
             PlayerStateManager.ResetPlayerStatuses();
             PlayerPositionManager.ResetPositions();
             _reloadHasBeenTriggeredThisScene = false;
-            LateJoinEntry.Log.LogDebug("[State Reset] Reset scene reload trigger flag.");
+            LATE.Core.LatePlugin.Log.LogDebug("[State Reset] Reset scene reload trigger flag.");
 
             _shouldOpenLobbyAfterGen = false;
-            LateJoinEntry.Log.LogDebug("[State Reset] Reset lobby-open-after-gen flag.");
+            LATE.Core.LatePlugin.Log.LogDebug("[State Reset] Reset lobby-open-after-gen flag.");
             #endregion
 
             #region Validate Configuration
@@ -207,7 +207,7 @@ namespace LATE
                 || ConfigManager.AllowInArena == null
             )
             {
-                LateJoinEntry.Log.LogError("[MOD Resync] Config values not bound!");
+                LATE.Core.LatePlugin.Log.LogError("[MOD Resync] Config values not bound!");
                 if (PhotonNetwork.InRoom)
                     PhotonNetwork.CurrentRoom.IsOpen = false; // Keep lobby closed on config error
                 orig.Invoke(self, completedLevel, levelFailed, changeLevelType); // Still perform level change
@@ -224,17 +224,17 @@ namespace LATE
             }
 
             // Log level change intent
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[MOD Resync] Host changing level (Completed: {completedLevel}, Failed: {levelFailed}, Type: {changeLevelType}). Current Level Pre-Change: '{self.levelCurrent?.name ?? "None"}'"
             );
 
             // --- Log pre-change state for debugging ---
             Level? preChangeCurrentLevel = self.levelCurrent;
             Level? preChangeLobbyLevel = self.levelLobby;
-            LateJoinEntry.Log.LogDebug(
+            LATE.Core.LatePlugin.Log.LogDebug(
                 $"[MOD Resync Debug Pre] CurrentLevel: Name='{preChangeCurrentLevel?.name ?? "NULL"}'"
             );
-            LateJoinEntry.Log.LogDebug(
+            LATE.Core.LatePlugin.Log.LogDebug(
                 $"[MOD Resync Debug Pre] LobbyLevel:   Name='{preChangeLobbyLevel?.name ?? "NULL"}'"
             );
 
@@ -250,13 +250,13 @@ namespace LATE
             // --- Log post-change state for debugging ---
             Level? postChangeCurrentLevel = self.levelCurrent;
             Level? postChangeLobbyLevel = self.levelLobby;
-            LateJoinEntry.Log.LogDebug(
+            LATE.Core.LatePlugin.Log.LogDebug(
                 $"[MOD Resync Debug Post] CurrentLevel: Name='{postChangeCurrentLevel?.name ?? "NULL"}'"
             );
-            LateJoinEntry.Log.LogDebug(
+            LATE.Core.LatePlugin.Log.LogDebug(
                 $"[MOD Resync Debug Post] LobbyLevel:   Name='{postChangeLobbyLevel?.name ?? "NULL"}'"
             );
-            LateJoinEntry.Log.LogDebug(
+            LATE.Core.LatePlugin.Log.LogDebug(
                 $"[MOD Resync Debug Post] RunIsArena() check result: {SemiFunc.RunIsArena()}"
             );
 
@@ -266,7 +266,7 @@ namespace LATE
             if (!modLogicActiveInNewScene)
             {
                 // If mod logic is disabled (MainMenu, LobbyMenu, Tutorial), ensure lobby is OPEN immediately
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"[MOD Resync] Mod logic is disabled for the new level ('{self.levelCurrent?.name ?? "Unknown"}'). Ensuring lobby is OPEN NOW."
                 );
                 if (PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null)
@@ -279,11 +279,11 @@ namespace LATE
                 _shouldOpenLobbyAfterGen = false; // Ensure this is false
 
                 // Disarm failsafe if mod logic becomes inactive
-                if (_lobbyUnlockFailsafeCoroutine != null && LateJoinEntry.CoroutineRunner != null)
+                if (_lobbyUnlockFailsafeCoroutine != null && LATE.Core.LatePlugin.CoroutineRunner != null)
                 {
-                    LateJoinEntry.CoroutineRunner.StopCoroutine(_lobbyUnlockFailsafeCoroutine);
+                    LATE.Core.LatePlugin.CoroutineRunner.StopCoroutine(_lobbyUnlockFailsafeCoroutine);
                     _lobbyUnlockFailsafeCoroutine = null;
-                    LateJoinEntry.Log.LogDebug("[L.A.T.E. Failsafe] Mod logic inactive. Disarmed any existing failsafe.");
+                    LATE.Core.LatePlugin.Log.LogDebug("[L.A.T.E. Failsafe] Mod logic inactive. Disarmed any existing failsafe.");
                 }
             }
             else
@@ -291,11 +291,11 @@ namespace LATE
                 bool allowJoinEventually = ShouldAllowLobbyJoin(self, levelFailed);
                 _shouldOpenLobbyAfterGen = allowJoinEventually;
 
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"[MOD Resync] Mod logic ACTIVE for new level. Lobby should open after gen: {_shouldOpenLobbyAfterGen} (Based on ShouldAllowLobbyJoin result: {allowJoinEventually})"
                 );
 
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     "[MOD Resync] Closing/locking lobby TEMPORARILY until level generation completes."
                 );
                 if (PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null)
@@ -306,29 +306,29 @@ namespace LATE
                 _normalUnlockLogicExecuted = false; // Reset for this level change cycle
 
                 // ---- START FAILSAVE ----
-                if (LateJoinEntry.CoroutineRunner != null)
+                if (LATE.Core.LatePlugin.CoroutineRunner != null)
                 {
                     // Stop any previous failsafe coroutine
                     if (_lobbyUnlockFailsafeCoroutine != null)
                     {
-                        LateJoinEntry.CoroutineRunner.StopCoroutine(_lobbyUnlockFailsafeCoroutine);
-                        LateJoinEntry.Log.LogDebug("[L.A.T.E. Failsafe] Stopped previous failsafe coroutine.");
+                        LATE.Core.LatePlugin.CoroutineRunner.StopCoroutine(_lobbyUnlockFailsafeCoroutine);
+                        LATE.Core.LatePlugin.Log.LogDebug("[L.A.T.E. Failsafe] Stopped previous failsafe coroutine.");
                     }
 
                     if (_shouldOpenLobbyAfterGen) // Only arm failsafe if we intend to open it
                     {
-                        _lobbyUnlockFailsafeCoroutine = LateJoinEntry.CoroutineRunner.StartCoroutine(LobbyUnlockFailsafeCoroutine());
+                        _lobbyUnlockFailsafeCoroutine = LATE.Core.LatePlugin.CoroutineRunner.StartCoroutine(LobbyUnlockFailsafeCoroutine());
                         // Log for arming is inside the coroutine itself
                     }
                     else
                     {
                         _lobbyUnlockFailsafeCoroutine = null; // Ensure it's null if we don't intend to open
-                        LateJoinEntry.Log.LogDebug("[L.A.T.E. Failsafe] Intentionally keeping lobby closed. Failsafe not armed.");
+                        LATE.Core.LatePlugin.Log.LogDebug("[L.A.T.E. Failsafe] Intentionally keeping lobby closed. Failsafe not armed.");
                     }
                 }
                 else
                 {
-                    LateJoinEntry.Log.LogError("[L.A.T.E. Failsafe] Cannot manage failsafe: CoroutineRunner is null!");
+                    LATE.Core.LatePlugin.Log.LogError("[L.A.T.E. Failsafe] Cannot manage failsafe: CoroutineRunner is null!");
                     _lobbyUnlockFailsafeCoroutine = null;
                 }
                 // ---- END FAILSAVE ----
@@ -361,7 +361,7 @@ namespace LATE
             // We also don't want to interfere with any failsafe if it was (incorrectly) armed.
             if (!Utilities.IsModLogicActive())
             {
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     "[GameDirector.SetStart Postfix] Mod logic is inactive for this scene. No lobby action needed here by L.A.T.E."
                 );
                 // It's important NOT to set _normalUnlockLogicExecuted or stop the failsafe here,
@@ -370,14 +370,14 @@ namespace LATE
                 return;
             }
 
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[GameDirector.SetStart Postfix] GameDirector state set to Start. Checking if lobby should open (Flag: {_shouldOpenLobbyAfterGen})."
             );
 
             // Check the flag set during RunManager_ChangeLevelHook
             if (_shouldOpenLobbyAfterGen)
             {
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     "[GameDirector.SetStart Postfix] Flag is TRUE. Opening Photon room and unlocking Steam lobby NOW."
                 );
 
@@ -385,37 +385,37 @@ namespace LATE
                 if (PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null)
                 {
                     PhotonNetwork.CurrentRoom.IsOpen = true;
-                    LateJoinEntry.Log.LogDebug(
+                    LATE.Core.LatePlugin.Log.LogDebug(
                         "[GameDirector.SetStart Postfix] Photon Room IsOpen set to true."
                     );
                 }
                 else
                 {
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         "[GameDirector.SetStart Postfix] Cannot open Photon room: Not in room or CurrentRoom is null."
                     );
                 }
 
                 // Unlock Steam Lobby
                 GameVersionSupport.UnlockSteamLobby(true);
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     "[GameDirector.SetStart Postfix] Steam lobby unlock attempted."
                 );
 
                 _normalUnlockLogicExecuted = true; // Signal that this "open" path was successful
-                LateJoinEntry.Log.LogInfo("[L.A.T.E.] Normal lobby 'open' sequence completed successfully.");
+                LATE.Core.LatePlugin.Log.LogInfo("[L.A.T.E.] Normal lobby 'open' sequence completed successfully.");
 
                 // Disarm the failsafe as it's no longer needed
-                if (_lobbyUnlockFailsafeCoroutine != null && LateJoinEntry.CoroutineRunner != null)
+                if (_lobbyUnlockFailsafeCoroutine != null && LATE.Core.LatePlugin.CoroutineRunner != null)
                 {
-                    LateJoinEntry.CoroutineRunner.StopCoroutine(_lobbyUnlockFailsafeCoroutine);
+                    LATE.Core.LatePlugin.CoroutineRunner.StopCoroutine(_lobbyUnlockFailsafeCoroutine);
                     _lobbyUnlockFailsafeCoroutine = null;
-                    LateJoinEntry.Log.LogDebug("[L.A.T.E. Failsafe] Disarmed by successful normal 'open' logic.");
+                    LATE.Core.LatePlugin.Log.LogDebug("[L.A.T.E. Failsafe] Disarmed by successful normal 'open' logic.");
                 }
             }
             else // _shouldOpenLobbyAfterGen was FALSE (meaning we intended to keep it locked)
             {
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     "[GameDirector.SetStart Postfix] Flag is FALSE. Lobby remains closed/locked as per initial decision during level change."
                 );
 
@@ -426,7 +426,7 @@ namespace LATE
                     && PhotonNetwork.CurrentRoom.IsOpen // Only act if it's unexpectedly open
                 )
                 {
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         "[GameDirector.SetStart Postfix] Sanity Check: Photon room was open despite L.A.T.E. intending it to be closed. Closing."
                     );
                     PhotonNetwork.CurrentRoom.IsOpen = false;
@@ -434,28 +434,28 @@ namespace LATE
 
                 // Sanity Check: Ensure Steam lobby is locked if flag is false by re-applying LockLobby
                 GameVersionSupport.LockSteamLobby();
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                    "[GameDirector.SetStart Postfix] Sanity Check: Steam lobby lock (re)attempted as L.A.T.E. intended it to be closed."
                );
 
                 _normalUnlockLogicExecuted = true; // Signal that this "keep closed" path was successful
                                                    // This is important so the failsafe (which shouldn't have been armed if _shouldOpenLobbyAfterGen was false,
                                                    // but as a precaution) knows that L.A.T.E. made a conscious decision.
-                LateJoinEntry.Log.LogInfo("[L.A.T.E.] Normal lobby 'keep closed' sequence completed.");
+                LATE.Core.LatePlugin.Log.LogInfo("[L.A.T.E.] Normal lobby 'keep closed' sequence completed.");
 
                 // Disarm the failsafe (it shouldn't be running if _shouldOpenLobbyAfterGen was false, but good practice to be sure)
-                if (_lobbyUnlockFailsafeCoroutine != null && LateJoinEntry.CoroutineRunner != null)
+                if (_lobbyUnlockFailsafeCoroutine != null && LATE.Core.LatePlugin.CoroutineRunner != null)
                 {
-                    LateJoinEntry.CoroutineRunner.StopCoroutine(_lobbyUnlockFailsafeCoroutine);
+                    LATE.Core.LatePlugin.CoroutineRunner.StopCoroutine(_lobbyUnlockFailsafeCoroutine);
                     _lobbyUnlockFailsafeCoroutine = null;
-                    LateJoinEntry.Log.LogDebug("[L.A.T.E. Failsafe] Disarmed by successful normal 'keep closed' logic (failsafe should not have been active).");
+                    LATE.Core.LatePlugin.Log.LogDebug("[L.A.T.E. Failsafe] Disarmed by successful normal 'keep closed' logic (failsafe should not have been active).");
                 }
             }
 
             // CRITICAL: Reset the _shouldOpenLobbyAfterGen flag regardless of whether we opened the lobby or not.
             // This prepares it for the next level change.
             _shouldOpenLobbyAfterGen = false;
-            LateJoinEntry.Log.LogDebug(
+            LATE.Core.LatePlugin.Log.LogDebug(
                 $"[GameDirector.SetStart Postfix] Resetting _shouldOpenLobbyAfterGen flag to false."
             );
         }
@@ -468,16 +468,16 @@ namespace LATE
         private static IEnumerator LobbyUnlockFailsafeCoroutine()
         {
             const float failsafeDelaySeconds = 30f; // Configurable? For now, 30 seconds.
-            LateJoinEntry.Log.LogInfo($"[L.A.T.E. Failsafe] Armed. Will check lobby state in {failsafeDelaySeconds} seconds if normal unlock doesn't occur.");
+            LATE.Core.LatePlugin.Log.LogInfo($"[L.A.T.E. Failsafe] Armed. Will check lobby state in {failsafeDelaySeconds} seconds if normal unlock doesn't occur.");
 
             yield return new WaitForSeconds(failsafeDelaySeconds);
 
-            LateJoinEntry.Log.LogInfo("[L.A.T.E. Failsafe] Timer elapsed. Checking lobby state.");
+            LATE.Core.LatePlugin.Log.LogInfo("[L.A.T.E. Failsafe] Timer elapsed. Checking lobby state.");
 
             // Check if the normal unlock logic already ran and was successful
             if (_normalUnlockLogicExecuted)
             {
-                LateJoinEntry.Log.LogInfo("[L.A.T.E. Failsafe] Normal unlock logic was executed. Failsafe action not needed.");
+                LATE.Core.LatePlugin.Log.LogInfo("[L.A.T.E. Failsafe] Normal unlock logic was executed. Failsafe action not needed.");
                 _lobbyUnlockFailsafeCoroutine = null;
                 yield break;
             }
@@ -485,7 +485,7 @@ namespace LATE
             // Check if we are still the host and in a room
             if (!Utilities.IsRealMasterClient() || !PhotonNetwork.InRoom || PhotonNetwork.CurrentRoom == null)
             {
-                LateJoinEntry.Log.LogWarning("[L.A.T.E. Failsafe] Conditions not met for failsafe unlock (not host, not in room, or room is null). Aborting.");
+                LATE.Core.LatePlugin.Log.LogWarning("[L.A.T.E. Failsafe] Conditions not met for failsafe unlock (not host, not in room, or room is null). Aborting.");
                 _lobbyUnlockFailsafeCoroutine = null;
                 yield break;
             }
@@ -497,19 +497,19 @@ namespace LATE
 
             if (photonRoomIsStillClosed)
             {
-                LateJoinEntry.Log.LogWarning("[L.A.T.E. Failsafe] Detected lobby is STILL LOCKED after timeout and normal unlock logic did not execute. Forcing unlock.");
+                LATE.Core.LatePlugin.Log.LogWarning("[L.A.T.E. Failsafe] Detected lobby is STILL LOCKED after timeout and normal unlock logic did not execute. Forcing unlock.");
 
                 // Force unlock Photon Room
                 PhotonNetwork.CurrentRoom.IsOpen = true;
-                LateJoinEntry.Log.LogInfo("[L.A.T.E. Failsafe] Photon Room IsOpen set to true (FORCED).");
+                LATE.Core.LatePlugin.Log.LogInfo("[L.A.T.E. Failsafe] Photon Room IsOpen set to true (FORCED).");
 
                 // Force unlock Steam Lobby (make it public as per original intention)
                 GameVersionSupport.UnlockSteamLobby(true);
-                LateJoinEntry.Log.LogInfo("[L.A.T.E. Failsafe] Steam lobby unlock attempted (FORCED).");
+                LATE.Core.LatePlugin.Log.LogInfo("[L.A.T.E. Failsafe] Steam lobby unlock attempted (FORCED).");
             }
             else
             {
-                LateJoinEntry.Log.LogInfo("[L.A.T.E. Failsafe] Lobby was found to be already open. No forced action taken.");
+                LATE.Core.LatePlugin.Log.LogInfo("[L.A.T.E. Failsafe] Lobby was found to be already open. No forced action taken.");
             }
 
             _lobbyUnlockFailsafeCoroutine = null; // Mark coroutine as finished
@@ -544,7 +544,7 @@ namespace LATE
                 PhotonView pv = __instance.GetComponent<PhotonView>();
                 if (pv != null)
                 {
-                    LateJoinEntry.Log.LogDebug(
+                    LATE.Core.LatePlugin.Log.LogDebug(
                         $"[Patch Prefix] Intercepting DestroyPhysGrabObject for ViewID {pv.ViewID}. Sending buffered RPC and marking as destroyed."
                     );
                     DestructionManager.MarkObjectAsDestroyed(pv.ViewID);
@@ -552,7 +552,7 @@ namespace LATE
                 }
                 else
                 {
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         $"[Patch Prefix] Unable to retrieve PhotonView for PhysGrabObject on {__instance.gameObject.name} during DestroyPhysGrabObject."
                     );
                 }
@@ -581,7 +581,7 @@ namespace LATE
                     PhotonView pv = pgo.GetComponent<PhotonView>();
                     if (pv != null)
                     {
-                        LateJoinEntry.Log.LogDebug(
+                        LATE.Core.LatePlugin.Log.LogDebug(
                             $"[Patch Prefix] Intercepting ImpactDetector.DestroyObject for ViewID {pv.ViewID}. Sending buffered RPC and marking as destroyed."
                         );
                         DestructionManager.MarkObjectAsDestroyed(pv.ViewID);
@@ -589,14 +589,14 @@ namespace LATE
                     }
                     else
                     {
-                        LateJoinEntry.Log.LogWarning(
+                        LATE.Core.LatePlugin.Log.LogWarning(
                             $"[Patch Prefix] Unable to retrieve PhotonView for PhysGrabObject on {pgo.gameObject.name} during DestroyObject via ImpactDetector."
                         );
                     }
                 }
                 else
                 {
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         $"[Patch Prefix] Unable to retrieve PhysGrabObject for ImpactDetector on {__instance.gameObject.name} during DestroyObject."
                     );
                 }
@@ -616,7 +616,7 @@ namespace LATE
                 PhotonView pv = __instance.GetComponent<PhotonView>();
                 if (pv != null)
                 {
-                    LateJoinEntry.Log.LogDebug(
+                    LATE.Core.LatePlugin.Log.LogDebug(
                         $"[Patch Prefix] Intercepting DestroyHinge for ViewID {pv.ViewID}. Sending buffered RPC and marking as destroyed."
                     );
                     DestructionManager.MarkObjectAsDestroyed(pv.ViewID);
@@ -624,7 +624,7 @@ namespace LATE
                 }
                 else
                 {
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         $"[Patch Prefix] Unable to retrieve PhotonView for Hinge on {__instance.gameObject.name} during DestroyHinge."
                     );
                 }
@@ -677,7 +677,7 @@ namespace LATE
             // Apply the skip logic
             if (skipCustomLogic)
             {
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     $"[Spawn Hook] Skipping custom spawn logic ({skipReason}). Calling original."
                 );
                 try
@@ -687,7 +687,7 @@ namespace LATE
                 }
                 catch (Exception e)
                 {
-                    LateJoinEntry.Log.LogError(
+                    LATE.Core.LatePlugin.Log.LogError(
                         $"[Spawn Hook] Error calling original SpawnRPC during skip ({skipReason}): {e}"
                     );
                 }
@@ -697,7 +697,7 @@ namespace LATE
             // These checks are still useful for other scenes or potential race conditions.
             if (self == null || self.photonView == null || self.photonView.Owner == null)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     "[Spawn Hook] PlayerAvatar, PhotonView, or Owner is null (in expected gameplay scene). Cannot proceed with custom logic."
                 );
                 try
@@ -708,7 +708,7 @@ namespace LATE
                 }
                 catch (Exception e)
                 {
-                    LateJoinEntry.Log.LogError(
+                    LATE.Core.LatePlugin.Log.LogError(
                         $"Error calling original SpawnRPC on early exit (in expected gameplay scene): {e}"
                     );
                 }
@@ -739,14 +739,14 @@ namespace LATE
                     finalRotation = lastTransform.Rotation;
                     positionOverriddenByMod = true;
                     useNormalSpawnLogic = false;
-                    LateJoinEntry.Log.LogInfo(
+                    LATE.Core.LatePlugin.Log.LogInfo(
                         $"[Spawn Hook] Spawning player {joiningPlayer.NickName} (ViewID {viewID}) at last known position: {finalPosition} (Was Death Head: {lastTransform.IsDeathHeadPosition})"
                     );
                     spawnPositionAssigned.Add(viewID);
                 }
                 else
                 {
-                    LateJoinEntry.Log.LogDebug(
+                    LATE.Core.LatePlugin.Log.LogDebug(
                         $"[Spawn Hook] No previous position found for {joiningPlayer.NickName}. Using default spawn logic."
                     );
                     useNormalSpawnLogic = true;
@@ -754,7 +754,7 @@ namespace LATE
             }
             else
             {
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     "[Spawn Hook] SpawnAtLastPosition is disabled. Using default spawn logic."
                 );
                 useNormalSpawnLogic = true;
@@ -779,7 +779,7 @@ namespace LATE
                     }
                     else
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"paSpawnedField is null in SpawnHook for ViewID {viewID}!"
                         );
                     }
@@ -830,7 +830,7 @@ namespace LATE
                                         finalRotation = sp.transform.rotation;
                                         foundAvailable = true;
                                         positionOverriddenByMod = true;
-                                        LateJoinEntry.Log.LogInfo(
+                                        LATE.Core.LatePlugin.Log.LogInfo(
                                             $"[Spawn Fix] Assigning player {assignedPlayerName} (ViewID {viewID}) to spawn point '{sp.name}' at {finalPosition}"
                                         );
                                         spawnPositionAssigned.Add(viewID);
@@ -839,33 +839,33 @@ namespace LATE
                                 }
                                 if (!foundAvailable)
                                 {
-                                    LateJoinEntry.Log.LogWarning(
+                                    LATE.Core.LatePlugin.Log.LogWarning(
                                         $"[Spawn Fix] All {allSpawnPoints.Count} spawn points blocked for {assignedPlayerName}. Using original: {position}"
                                     );
                                 }
                             }
                             else
                             {
-                                LateJoinEntry.Log.LogError(
+                                LATE.Core.LatePlugin.Log.LogError(
                                     $"[Spawn Fix] No valid spawn points found for {assignedPlayerName}. Using original: {position}"
                                 );
                             }
                         }
-                        LateJoinEntry.Log.LogDebug(
+                        LATE.Core.LatePlugin.Log.LogDebug(
                             $"[Spawn Fix] Invoking original Spawn for {assignedPlayerName} (ViewID {viewID}) at position {finalPosition} (Default logic, Overridden: {positionOverriddenByMod})"
                         );
                         orig.Invoke(self, finalPosition, finalRotation);
                     }
                     else
                     {
-                        LateJoinEntry.Log.LogDebug(
+                        LATE.Core.LatePlugin.Log.LogDebug(
                             $"[Spawn Hook] Skipping default spawn logic for {viewID}: already spawned ({alreadySpawned}) or assigned ({alreadyAssignedByMod})."
                         );
                     }
                 }
                 catch (Exception ex)
                 {
-                    LateJoinEntry.Log.LogError(
+                    LATE.Core.LatePlugin.Log.LogError(
                         $"Error in default SpawnHook logic for ViewID {viewID}: {ex}"
                     );
                     try
@@ -875,7 +875,7 @@ namespace LATE
                     }
                     catch (Exception origEx)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"Error calling original SpawnRPC after exception: {origEx}"
                         );
                     }
@@ -883,14 +883,14 @@ namespace LATE
             }
             else if (positionOverriddenByMod)
             {
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     $"[Spawn Fix] Invoking original Spawn for {joiningPlayer.NickName} (ViewID {viewID}) at position {finalPosition} (Last known position)"
                 );
                 orig.Invoke(self, finalPosition, finalRotation);
             }
             else
             {
-                LateJoinEntry.Log.LogWarning(
+                LATE.Core.LatePlugin.Log.LogWarning(
                     $"[Spawn Hook] Reached unexpected state for ViewID {viewID}. Invoking original spawn with default args."
                 );
                 orig.Invoke(self, position, rotation);
@@ -916,7 +916,7 @@ namespace LATE
 
             if (PhotonNetwork.IsMasterClient)
             {
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     $"[Late Join] PlayerAvatar Start: Sending LoadingLevelAnimationCompletedRPC for ViewID {pv.ViewID}"
                 );
                 pv.RPC("LoadingLevelAnimationCompletedRPC", RpcTarget.AllBuffered);
@@ -934,13 +934,13 @@ namespace LATE
         {
             if (!Utilities.IsModLogicActive())
             {
-                LateJoinEntry.Log?.LogDebug(
+                LATE.Core.LatePlugin.Log?.LogDebug(
                     $"[Patches] Player entered room in disabled scene. Skipping L.A.T.E join handling for {newPlayer?.NickName ?? "NULL"}."
                 );
                 return; // Stop processing here
             }
 
-            LateJoinEntry.Log.LogDebug(
+            LATE.Core.LatePlugin.Log.LogDebug(
                 $"[Patches] Player entered room: {newPlayer?.NickName ?? "NULL"} (ActorNr: {newPlayer?.ActorNumber ?? -1}) in an active scene."
             );
             if (newPlayer != null)
@@ -949,7 +949,7 @@ namespace LATE
             }
             else
             {
-                LateJoinEntry.Log.LogWarning(
+                LATE.Core.LatePlugin.Log.LogWarning(
                     "[Patches] Received null player in OnPlayerEnteredRoom_Postfix."
                 );
             }
@@ -968,16 +968,16 @@ namespace LATE
 
             if (!Utilities.IsModLogicActive())
             {
-                LateJoinEntry.Log?.LogDebug(
+                LATE.Core.LatePlugin.Log?.LogDebug(
                     $"[Patches] Player left room in disabled scene. Skipping L.A.T.E leave handling for {otherPlayer?.NickName ?? "NULL"}."
                 );
 
                 if (otherPlayer != null)
-                    LateJoinEntry.Log?.LogInfo(
+                    LATE.Core.LatePlugin.Log?.LogInfo(
                         $"[Patches][BaseGamePassthrough] Player left room: {otherPlayer.NickName} (ActorNr: {otherPlayer.ActorNumber})"
                     );
                 else
-                    LateJoinEntry.Log?.LogWarning(
+                    LATE.Core.LatePlugin.Log?.LogWarning(
                         "[Patches][BaseGamePassthrough] Received null player in OnPlayerLeftRoom_Postfix."
                     );
 
@@ -986,7 +986,7 @@ namespace LATE
 
             if (otherPlayer != null)
             {
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"[Patches] Player left room in active scene: {otherPlayer.NickName} (ActorNr: {otherPlayer.ActorNumber})"
                 );
 
@@ -1003,7 +1003,7 @@ namespace LATE
                     }
                     else
                     {
-                        LateJoinEntry.Log.LogWarning(
+                        LATE.Core.LatePlugin.Log.LogWarning(
                             $"[PositionManager] Could not find PlayerAvatar for leaving player {otherPlayer.NickName} to track position."
                         );
                     }
@@ -1016,7 +1016,7 @@ namespace LATE
             }
             else
             {
-                LateJoinEntry.Log.LogWarning(
+                LATE.Core.LatePlugin.Log.LogWarning(
                     "[Patches] Received null player in OnPlayerLeftRoom_Postfix (active scene)."
                 );
             }
@@ -1064,21 +1064,21 @@ namespace LATE
                             }
                             else
                             {
-                                LateJoinEntry.Log.LogWarning(
+                                LATE.Core.LatePlugin.Log.LogWarning(
                                     $"[PositionManager] PlayerDeathHead component not found or null for {owner.NickName}."
                                 );
                             }
                         }
                         catch (Exception ex)
                         {
-                            LateJoinEntry.Log.LogError(
+                            LATE.Core.LatePlugin.Log.LogError(
                                 $"[PositionManager] Error reflecting PlayerDeathHead for {owner.NickName}: {ex}"
                             );
                         }
                     }
                     else
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             "[PositionManager] PlayerDeathHead reflection field is null!"
                         );
                     }
@@ -1113,7 +1113,7 @@ namespace LATE
             PhotonView? pv = __instance?.photonView;
             if (pv == null || __instance == null)
             {
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     "[LateJoin Trigger RPC] Instance or PhotonView is null in LoadingCompleteRPC prefix. Cannot determine sender."
                 );
                 return true; // Let original run, but can't proceed
@@ -1124,7 +1124,7 @@ namespace LATE
             if (sender == null)
             {
                 // This shouldn't happen for a player avatar, but good practice
-                LateJoinEntry.Log.LogError(
+                LATE.Core.LatePlugin.Log.LogError(
                     $"[LateJoin Trigger RPC] PhotonView Owner is null for Avatar PV {pv.ViewID}. Cannot determine sender."
                 );
                 return true;
@@ -1142,7 +1142,7 @@ namespace LATE
             // Check if a reload is currently in progress for this scene instance.
             if (_reloadHasBeenTriggeredThisScene)
             {
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     $"[LateJoin Trigger RPC] Ignoring LoadingCompleteRPC from {nickname}: Reload already triggered this scene."
                 );
                 return true; // Don't interfere with reload
@@ -1151,14 +1151,14 @@ namespace LATE
             // Check if THIS specific player actually needs the late-join sync action
             if (LateJoinManager.IsPlayerNeedingSync(actorNr))
             {
-                LateJoinEntry.Log.LogInfo(
+                LATE.Core.LatePlugin.Log.LogInfo(
                     $"[LateJoin Trigger RPC] Received LoadingLevelAnimationCompletedRPC from late-joiner {nickname} (ActorNr: {actorNr})."
                 );
 
                 // Check if mod logic should even be active in the current scene
                 if (!Utilities.IsModLogicActive())
                 {
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         $"[LateJoin Trigger RPC] Mod logic is INACTIVE in current scene. Clearing sync need for {nickname} but not syncing."
                     );
                     LateJoinManager.ClearPlayerTracking(actorNr); // Clean up tracking
@@ -1172,14 +1172,14 @@ namespace LATE
                 if (ConfigManager.ForceReloadOnLateJoin.Value)
                 {
                     // -----> PERFORM RELOAD SEQUENCE <-----
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         $"[LateJoin Trigger RPC] CONFIG OPTION ENABLED: Forcing level reload because player {nickname} completed loading late."
                     );
 
                     if (RunManager.instance != null)
                     {
                         _reloadHasBeenTriggeredThisScene = true;
-                        LateJoinEntry.Log.LogInfo(
+                        LATE.Core.LatePlugin.Log.LogInfo(
                             $"[LateJoin Trigger RPC] Setting reload-triggered flag for this scene instance."
                         );
                         RunManager.instance.RestartScene();
@@ -1187,7 +1187,7 @@ namespace LATE
                     }
                     else
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[LateJoin Trigger RPC] FAILED TO FORCE RELOAD: RunManager.instance is null for late joiner {nickname}."
                         );
                         LateJoinManager.ClearPlayerTracking(actorNr);
@@ -1196,7 +1196,7 @@ namespace LATE
                 }
                 else // ---> Config option is FALSE (Normal Sync Logic) <---
                 {
-                    LateJoinEntry.Log.LogInfo(
+                    LATE.Core.LatePlugin.Log.LogInfo(
                         $"[LateJoin Trigger RPC] Initiating standard late-join sync for {nickname}."
                     );
                     // Pass the PlayerAvatar instance (__instance) we got from the patch parameter
@@ -1248,7 +1248,7 @@ namespace LATE
             {
                 string enemyName = __instance.gameObject?.name ?? "UnknownEnemy";
                 string playerName = player.photonView?.Owner?.NickName ?? $"ViewID {playerID}";
-                LateJoinEntry.Log.LogWarning(
+                LATE.Core.LatePlugin.Log.LogWarning(
                     $"[Patch Fix] EnemyVision.VisionTrigger: Key {playerID} ({playerName}) missing in '{missingDict}' for enemy '{enemyName}'. Attempting recovery via PlayerAdded."
                 );
 
@@ -1263,14 +1263,14 @@ namespace LATE
                         || !__instance.VisionTriggered.ContainsKey(playerID)
                     )
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[Patch Fix] EnemyVision.VisionTrigger: FAILED to add key {playerID} via PlayerAdded for enemy '{enemyName}'. Skipping original trigger logic to prevent crash."
                         );
                         return false; // Prevent original method execution
                     }
                     else
                     {
-                        LateJoinEntry.Log.LogInfo(
+                        LATE.Core.LatePlugin.Log.LogInfo(
                             $"[Patch Fix] EnemyVision.VisionTrigger: Successfully recovered key {playerID} for enemy '{enemyName}'."
                         );
                         // Now safe to proceed with the original method
@@ -1278,7 +1278,7 @@ namespace LATE
                 }
                 catch (Exception ex)
                 {
-                    LateJoinEntry.Log.LogError(
+                    LATE.Core.LatePlugin.Log.LogError(
                         $"[Patch Fix] EnemyVision.VisionTrigger: Exception during PlayerAdded recovery for key {playerID} on enemy '{enemyName}': {ex}"
                     );
                     return false; // Prevent original method execution on error
@@ -1329,7 +1329,7 @@ namespace LATE
                     string enemyName = __instance.gameObject?.name ?? "UnknownEnemyTrigger";
                     string playerName =
                         playerAvatar.photonView?.Owner?.NickName ?? $"ViewID {viewID}";
-                    LateJoinEntry.Log.LogWarning(
+                    LATE.Core.LatePlugin.Log.LogWarning(
                         $"[Patch Fix] EnemyTriggerAttack.OnTriggerStay: Key {viewID} ({playerName}) missing in 'VisionTriggered' for enemy '{enemyName}'. Attempting recovery via PlayerAdded."
                     );
 
@@ -1341,20 +1341,20 @@ namespace LATE
                         // Re-check
                         if (!visionInstance.VisionTriggered.ContainsKey(viewID))
                         {
-                            LateJoinEntry.Log.LogError(
+                            LATE.Core.LatePlugin.Log.LogError(
                                 $"[Patch Fix] EnemyTriggerAttack.OnTriggerStay: FAILED to add key {viewID} via PlayerAdded for enemy '{enemyName}'."
                             );
                         }
                         else
                         {
-                            LateJoinEntry.Log.LogInfo(
+                            LATE.Core.LatePlugin.Log.LogInfo(
                                 $"[Patch Fix] EnemyTriggerAttack.OnTriggerStay: Successfully recovered key {viewID} for enemy '{enemyName}'."
                             );
                         }
                     }
                     catch (Exception ex)
                     {
-                        LateJoinEntry.Log.LogError(
+                        LATE.Core.LatePlugin.Log.LogError(
                             $"[Patch Fix] EnemyTriggerAttack.OnTriggerStay: Exception during PlayerAdded recovery for key {viewID} on enemy '{enemyName}': {ex}"
                         );
                     }
@@ -1380,13 +1380,13 @@ namespace LATE
             // state isn't easily accessible or reliable for this check.
             // For now, we'll assume the call to this helper is the *first* indication.
 
-            LateJoinEntry.Log.LogInfo($"[L.A.T.E.] [Early Lock] Host is about to change level (Trigger: {reason}). Locking lobby NOW.");
+            LATE.Core.LatePlugin.Log.LogInfo($"[L.A.T.E.] [Early Lock] Host is about to change level (Trigger: {reason}). Locking lobby NOW.");
             if (PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null)
             {
                 if (PhotonNetwork.CurrentRoom.IsOpen) // Only log if it was open
                 {
                     PhotonNetwork.CurrentRoom.IsOpen = false;
-                    LateJoinEntry.Log.LogDebug("[Early Lock] Photon Room IsOpen set to false.");
+                    LATE.Core.LatePlugin.Log.LogDebug("[Early Lock] Photon Room IsOpen set to false.");
                 }
             }
             GameVersionSupport.LockSteamLobby(); // This helper should handle Steam lobby visibility
@@ -1408,7 +1408,7 @@ namespace LATE
                 if (_tstPlayerChatBoxStateStartField == null)
                 {
                     // Log error if reflection fails - this is critical for the patch
-                    LateJoinEntry.Log?.LogError("[Reflection Error] Failed to find private field 'TruckScreenText.playerChatBoxStateStart'. Early lock patch will not function correctly.");
+                    LATE.Core.LatePlugin.Log?.LogError("[Reflection Error] Failed to find private field 'TruckScreenText.playerChatBoxStateStart'. Early lock patch will not function correctly.");
                 }
             }
             return _tstPlayerChatBoxStateStartField;
@@ -1439,7 +1439,7 @@ namespace LATE
                     }
                     catch (Exception ex)
                     {
-                        LateJoinEntry.Log?.LogError($"[Early Lock Prefix - DestroySlackers] Error accessing playerChatBoxStateStart: {ex}");
+                        LATE.Core.LatePlugin.Log?.LogError($"[Early Lock Prefix - DestroySlackers] Error accessing playerChatBoxStateStart: {ex}");
                     }
                 }
             }
@@ -1471,7 +1471,7 @@ namespace LATE
                     }
                     catch (Exception ex)
                     {
-                        LateJoinEntry.Log?.LogError($"[Early Lock Prefix - StartingTruck] Error accessing playerChatBoxStateStart: {ex}");
+                        LATE.Core.LatePlugin.Log?.LogError($"[Early Lock Prefix - StartingTruck] Error accessing playerChatBoxStateStart: {ex}");
                     }
                 }
             }
@@ -1500,7 +1500,7 @@ namespace LATE
                 // but we force it true before that happens).
                 if (!PhotonNetwork.AutomaticallySyncScene)
                 {
-                    LateJoinEntry.Log.LogInfo(
+                    LATE.Core.LatePlugin.Log.LogInfo(
                         "[L.A.T.E] Forcing PhotonNetwork.AutomaticallySyncScene = true in NetworkConnect.Start (Prefix)"
                     );
                     PhotonNetwork.AutomaticallySyncScene = true;
@@ -1508,7 +1508,7 @@ namespace LATE
                 else
                 {
                     // This case might happen if another mod already set it true, which is fine.
-                    LateJoinEntry.Log.LogDebug(
+                    LATE.Core.LatePlugin.Log.LogDebug(
                         "[L.A.T.E] PhotonNetwork.AutomaticallySyncScene is already true in NetworkConnect.Start (Prefix)."
                     );
                 }
@@ -1516,7 +1516,7 @@ namespace LATE
             else
             {
                 // This might be the initial host setup or single player, let original logic run.
-                LateJoinEntry.Log.LogDebug(
+                LATE.Core.LatePlugin.Log.LogDebug(
                     "[L.A.T.E] Skipping AutomaticallySyncScene force in NetworkConnect.Start (Prefix) - Likely initial host/SP setup."
                 );
             }
@@ -1527,7 +1527,7 @@ namespace LATE
         [HarmonyPostfix]
         static void LogAutoSyncPostfix()
         {
-            LateJoinEntry.Log.LogInfo(
+            LATE.Core.LatePlugin.Log.LogInfo(
                 $"[L.A.T.E] NetworkConnect.OnJoinedRoom Postfix: AutomaticallySyncScene is now {PhotonNetwork.AutomaticallySyncScene}"
             );
         }

@@ -28,11 +28,11 @@ namespace LATE
         {
             if (_destroyedViewIDs.Add(viewID))
             {
-                LateJoinEntry.Log.LogDebug($"[DestructionManager] Marking ViewID {viewID} as destroyed.");
+                LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Marking ViewID {viewID} as destroyed.");
             }
             else
             {
-                LateJoinEntry.Log.LogDebug($"[DestructionManager] Duplicate destroy mark for ViewID {viewID} ignored.");
+                LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Duplicate destroy mark for ViewID {viewID} ignored.");
             }
 
             // Remove from broken list to keep sets mutually exclusive.
@@ -43,19 +43,19 @@ namespace LATE
         {
             if (pv == null)
             {
-                LateJoinEntry.Log.LogWarning("[DestructionManager] MarkHingeAsBroken called with null PhotonView.");
+                LATE.Core.LatePlugin.Log.LogWarning("[DestructionManager] MarkHingeAsBroken called with null PhotonView.");
                 return;
             }
 
             if (_destroyedViewIDs.Contains(pv.ViewID))
             {
-                LateJoinEntry.Log.LogDebug($"[DestructionManager] Skipped break-mark – object {pv.ViewID} already destroyed.");
+                LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Skipped break-mark – object {pv.ViewID} already destroyed.");
                 return;
             }
 
             if (_brokenHingeViewIDs.Add(pv.ViewID))
             {
-                LateJoinEntry.Log.LogDebug($"[DestructionManager] Marking hinge ViewID {pv.ViewID} as broken.");
+                LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Marking hinge ViewID {pv.ViewID} as broken.");
             }
         }
 
@@ -65,7 +65,7 @@ namespace LATE
 
         public static void ResetState()
         {
-            LateJoinEntry.Log.LogDebug("[DestructionManager] Clearing destruction/broken tracking & hinge cache.");
+            LATE.Core.LatePlugin.Log.LogDebug("[DestructionManager] Clearing destruction/broken tracking & hinge cache.");
             _destroyedViewIDs.Clear();
             _brokenHingeViewIDs.Clear();
             _hingeCache = Array.Empty<PhysGrabHinge>();
@@ -111,12 +111,12 @@ namespace LATE
 
             if (brokenField == null || closedField == null) // Check both fields
             {
-                LateJoinEntry.Log.LogError("[DestructionManager] Reflection field 'broken' or 'closed' missing – cannot sync hinge states.");
+                LATE.Core.LatePlugin.Log.LogError("[DestructionManager] Reflection field 'broken' or 'closed' missing – cannot sync hinge states.");
                 return;
             }
 
             PhysGrabHinge[] cachedHinges = GetCachedHinges();
-            LateJoinEntry.Log.LogInfo($"[DestructionManager] Syncing ALL hinge states to {targetNickname} (Total hinges: {cachedHinges.Length}).");
+            LATE.Core.LatePlugin.Log.LogInfo($"[DestructionManager] Syncing ALL hinge states to {targetNickname} (Total hinges: {cachedHinges.Length}).");
 
             int brokenSyncCount = 0;
             int openSyncCount = 0;
@@ -134,7 +134,7 @@ namespace LATE
                 // Skip fully destroyed objects tracked separately (if applicable, otherwise this check might be redundant)
                 if (_destroyedViewIDs.Contains(viewID))
                 {
-                    LateJoinEntry.Log.LogDebug($"[DestructionManager] Skipping hinge {viewID} sync: Marked as destroyed.");
+                    LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Skipping hinge {viewID} sync: Marked as destroyed.");
                     continue;
                 }
 
@@ -149,7 +149,7 @@ namespace LATE
                 }
                 catch (Exception ex)
                 {
-                    LateJoinEntry.Log.LogError($"[DestructionManager] Reflection failed getting state for hinge {viewID}: {ex}");
+                    LATE.Core.LatePlugin.Log.LogError($"[DestructionManager] Reflection failed getting state for hinge {viewID}: {ex}");
                     continue;
                 }
 
@@ -160,9 +160,9 @@ namespace LATE
                     // Also ensure it's marked in our tracking.
                     if (_brokenHingeViewIDs.Add(viewID)) // Add if not already marked
                     {
-                        LateJoinEntry.Log.LogDebug($"[DestructionManager] Marking hinge {viewID} as broken during sync.");
+                        LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Marking hinge {viewID} as broken during sync.");
                     }
-                    LateJoinEntry.Log.LogDebug($"[DestructionManager] Sending HingeBreakRPC for broken hinge {viewID} to {targetNickname}.");
+                    LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Sending HingeBreakRPC for broken hinge {viewID} to {targetNickname}.");
                     pv.RPC("HingeBreakRPC", targetPlayer);
                     brokenSyncCount++;
                 }
@@ -174,7 +174,7 @@ namespace LATE
                     // Now sync the open/closed state for non-broken hinges
                     if (!closedOnHost) // Host says it's OPEN
                     {
-                        LateJoinEntry.Log.LogDebug($"[DestructionManager] Sending OpenImpulseRPC for OPEN hinge {viewID} to {targetNickname}.");
+                        LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Sending OpenImpulseRPC for OPEN hinge {viewID} to {targetNickname}.");
                         pv.RPC("OpenImpulseRPC", targetPlayer); // Tell the client to open it
                         openSyncCount++;
                     }
@@ -186,12 +186,12 @@ namespace LATE
                         // Let's skip sending CloseImpulseRPC for now to avoid unnecessary RPCs,
                         // unless testing shows it's needed.
                         closedSyncCount++; // Just count it for logging
-                        LateJoinEntry.Log.LogDebug($"[DestructionManager] Hinge {viewID} is CLOSED on host, no RPC needed for {targetNickname}.");
+                        LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Hinge {viewID} is CLOSED on host, no RPC needed for {targetNickname}.");
                     }
                 }
             }
 
-            LateJoinEntry.Log.LogInfo($"[DestructionManager] Hinge sync to {targetNickname} finished – Synced: {brokenSyncCount} Broken, {openSyncCount} Opened, {closedSyncCount} Confirmed Closed.");
+            LATE.Core.LatePlugin.Log.LogInfo($"[DestructionManager] Hinge sync to {targetNickname} finished – Synced: {brokenSyncCount} Broken, {openSyncCount} Opened, {closedSyncCount} Confirmed Closed.");
         }
 
         #endregion

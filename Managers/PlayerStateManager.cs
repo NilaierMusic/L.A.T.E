@@ -57,7 +57,7 @@ namespace LATE
             _playerStatuses[userId] = status;
 
 #if DEBUG
-            LateJoinEntry.Log.LogInfo($"[PlayerState] {logHint} '{player.NickName}' (ID:{userId}) → {status}");
+            LATE.Core.LatePlugin.Log.LogInfo($"[PlayerState] {logHint} '{player.NickName}' (ID:{userId}) → {status}");
 #endif
         }
 
@@ -102,7 +102,7 @@ namespace LATE
         public static void ResetPlayerStatuses()
         {
 #if DEBUG
-            LateJoinEntry.Log.LogInfo("[PlayerState] Resetting all tracked player statuses for new level.");
+            LATE.Core.LatePlugin.Log.LogInfo("[PlayerState] Resetting all tracked player statuses for new level.");
 #endif
             _playerStatuses.Clear();
         }

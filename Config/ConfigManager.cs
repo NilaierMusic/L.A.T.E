@@ -38,7 +38,7 @@ namespace LATE
 
         #region Private Helpers
 
-        private static ManualLogSource Log => LateJoinEntry.Log;
+        private static ManualLogSource Log => LATE.Core.LatePlugin.Log;
 
         #endregion
 

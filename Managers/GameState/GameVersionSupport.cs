@@ -14,7 +14,7 @@ namespace LATE
 
     internal static class GameVersionSupport
     {
-        private static ManualLogSource Log => LateJoinEntry.Log;
+        private static ManualLogSource Log => LATE.Core.LatePlugin.Log;
         private static GameVersion _detectedVersion = GameVersion.Unknown;
 
         // Cached MethodInfo handles
