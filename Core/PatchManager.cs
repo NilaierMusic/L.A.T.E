@@ -1,13 +1,9 @@
 ﻿// File: L.A.T.E/Core/PatchManager.cs
-using System;
-using System.Collections.Generic;
-using System.Reflection;
 using BepInEx.Logging;
 using HarmonyLib;
 using MonoMod.RuntimeDetour;
 using Photon.Realtime;
-using LATE.Patches.CoreGame;
-using LATE.Patches.Player; // Added for PlayerAvatarPatches
+using System.Reflection;
 
 namespace LATE.Core;
 
@@ -22,14 +18,14 @@ internal static class PatchManager
     private static readonly (Type TargetType, string TargetMethod, Type? HookType, string HookMethod)[] _monoModHooks =
     {
         (typeof(RunManager), "ChangeLevel", typeof(LATE.Patches.CoreGame.RunManagerPatches), nameof(LATE.Patches.CoreGame.RunManagerPatches.RunManager_ChangeLevelHook)),
-        (typeof(PlayerAvatar), "Spawn", typeof(LATE.Patches.Player.PlayerAvatarPatches), nameof(LATE.Patches.Player.PlayerAvatarPatches.PlayerAvatar_SpawnHook)), // Updated
-        (typeof(PlayerAvatar), "Start", typeof(LATE.Patches.Player.PlayerAvatarPatches), nameof(LATE.Patches.Player.PlayerAvatarPatches.PlayerAvatar_StartHook)), // Updated
+        (typeof(PlayerAvatar), "Spawn", typeof(LATE.Patches.Player.PlayerAvatarPatches), nameof(LATE.Patches.Player.PlayerAvatarPatches.PlayerAvatar_SpawnHook)),
+        (typeof(PlayerAvatar), "Start", typeof(LATE.Patches.Player.PlayerAvatarPatches), nameof(LATE.Patches.Player.PlayerAvatarPatches.PlayerAvatar_StartHook)),
     };
 
-    private static readonly (Type TargetType, string TargetMethod, Type? PatchType, string PatchMethod, Type[]? Args, bool Postfix)[] _explicitHarmonyPatches =
+    private static readonly (Type TargetType, string TargetMethod, Type? PatchType, string HookMethod, Type[]? Args, bool Postfix)[] _explicitHarmonyPatches =
     {
-        (typeof(NetworkManager), nameof(NetworkManager.OnPlayerEnteredRoom), _oldPatchesClassType, "NetworkManager_OnPlayerEnteredRoom_Postfix", new[] { typeof(Player) }, true),
-        (typeof(NetworkManager), nameof(NetworkManager.OnPlayerLeftRoom), _oldPatchesClassType, "NetworkManager_OnPlayerLeftRoom_Postfix", new[] { typeof(Player) }, true),
+        (typeof(NetworkManager), nameof(NetworkManager.OnPlayerEnteredRoom), typeof(LATE.Patches.Player.NetworkManagerPatches), nameof(LATE.Patches.Player.NetworkManagerPatches.NetworkManager_OnPlayerEnteredRoom_Postfix), new[] { typeof(Player) }, true), // Updated
+        (typeof(NetworkManager), nameof(NetworkManager.OnPlayerLeftRoom), typeof(LATE.Patches.Player.NetworkManagerPatches), nameof(LATE.Patches.Player.NetworkManagerPatches.NetworkManager_OnPlayerLeftRoom_Postfix), new[] { typeof(Player) }, true), // Updated
     };
 
     internal static void InitializeAndApplyPatches(Harmony harmonyInstance, ManualLogSource logger)
@@ -39,11 +35,12 @@ internal static class PatchManager
 
         if (_oldPatchesClassType == null)
         {
-            _logger.LogWarning("[PatchManager] Could not find the old 'LATE.Patches' class. Some hooks/patches defined with it might not be applied. This is expected if all patches have been migrated from it.");
+            // This warning is fine if we successfully migrate everything from LATE.Patches
+            _logger.LogInfo("[PatchManager] Old 'LATE.Patches' class not found. This is expected if all patches are migrated.");
         }
         else
         {
-            _logger.LogInfo($"[PatchManager] Found old 'LATE.Patches' class type: {_oldPatchesClassType.FullName}. Will attempt to use it for remaining non-migrated patches.");
+            _logger.LogInfo($"[PatchManager] Found old 'LATE.Patches' class type: {_oldPatchesClassType.FullName}. Will attempt to use it if explicit patches still point there.");
         }
 
         ApplyMonoModHooks();
@@ -55,9 +52,10 @@ internal static class PatchManager
         _logger!.LogInfo("[PatchManager] Applying MonoMod hooks…");
         foreach (var (targetType, targetMethod, hookType, hookMethod) in _monoModHooks)
         {
-            if (hookType == null) // Should not happen now that we point to new classes
+            // hookType should always be non-null now as we are migrating
+            if (hookType == null)
             {
-                _logger!.LogWarning($"[MonoMod] Skipping hook for {targetType.Name}.{targetMethod} because its hook type was not found.");
+                _logger!.LogWarning($"[MonoMod] Skipping hook for {targetType.Name}.{targetMethod} because its hook type was not resolved. This should not happen post-migration.");
                 continue;
             }
             TryApplyMonoModHook(targetType, targetMethod, hookType, hookMethod);
@@ -100,20 +98,24 @@ internal static class PatchManager
             _harmonyInstance!.PatchAll(typeof(LATE.Patches.CoreGame.RunManagerPatches));
             _harmonyInstance!.PatchAll(typeof(LATE.Patches.CoreGame.GameDirectorPatches));
             _harmonyInstance!.PatchAll(typeof(LATE.Patches.CoreGame.NetworkConnectPatches));
-            _harmonyInstance!.PatchAll(typeof(LATE.Patches.Player.PlayerAvatarPatches)); // Added this line
+            _harmonyInstance!.PatchAll(typeof(LATE.Patches.Player.PlayerAvatarPatches));
+            _harmonyInstance!.PatchAll(typeof(LATE.Patches.Player.NetworkManagerPatches)); // Added this line
 
-
-            PatchOldClassIfExists("LATE.Patches, LATE", "old LATE.Patches (monolithic)");
+            // Remaining attribute patches from old monolithic class
+            PatchOldClassIfExists("LATE.Patches, LATE", "old LATE.Patches (monolithic attribute patches)");
+            // Explicitly named old patch classes
             PatchOldClassIfExists("LATE.TruckScreenText_ChatBoxState_EarlyLock_Patches, LATE", "old LATE.TruckScreenText_ChatBoxState_EarlyLock_Patches");
 
-            foreach (var (targetType, targetMethod, patchType, patchMethod, args, postfix) in _explicitHarmonyPatches)
+            // Apply explicit patches (should now be fully migrated or pointing to new classes)
+            foreach (var (targetType, targetMethod, patchType, patchMethodName, args, postfix) in _explicitHarmonyPatches)
             {
+                // patchType should always be non-null now
                 if (patchType == null)
                 {
-                    _logger!.LogWarning($"[Harmony] Skipping explicit patch for {targetType.Name}.{targetMethod} because its patch type was not found (likely from old, unmigrated Patches class).");
+                    _logger!.LogWarning($"[Harmony] Skipping explicit patch for {targetType.Name}.{targetMethod} because its patch type was not resolved. This should not happen post-migration.");
                     continue;
                 }
-                TryApplyHarmonyPatch(targetType, targetMethod, patchType, patchMethod, args, postfix);
+                TryApplyHarmonyPatch(targetType, targetMethod, patchType, patchMethodName, args, postfix);
             }
             _logger!.LogInfo("[PatchManager] Harmony patch application process finished.");
         }

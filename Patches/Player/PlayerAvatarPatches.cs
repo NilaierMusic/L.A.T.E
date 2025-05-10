@@ -1,16 +1,12 @@
 // File: L.A.T.E/Patches/Player/PlayerAvatarPatches.cs
 using HarmonyLib;
-using Photon.Pun;
-using Photon.Realtime; // This is already here, but we need to disambiguate
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using UnityEngine;
 using LATE.Config;
 using LATE.Core;
 using LATE.DataModels;
 using LATE.Managers;
 using LATE.Utilities;
+using Photon.Pun;
+using UnityEngine;
 using Object = UnityEngine.Object;
 
 namespace LATE.Patches.Player; // File-scoped namespace
