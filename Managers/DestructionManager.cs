@@ -1,217 +1,189 @@
-﻿using System;
+﻿// File: L.A.T.E/Managers/DestructionManager.cs
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 using Photon.Pun;
 using Photon.Realtime;
 using UnityEngine;
 using Object = UnityEngine.Object;
+using LATE.Core; // For LatePlugin.Log
+using LATE.Utilities; // For ReflectionCache, PhotonUtilities, GameUtilities
 
-namespace LATE
+namespace LATE.Managers; // File-scoped namespace
+
+/// <summary>
+/// Manages the tracking of destroyed PhysGrabObjects and broken PhysGrabHinges.
+/// This information is used to synchronize the state of these objects for late-joining players.
+/// </summary>
+internal static class DestructionManager
 {
-    internal static class DestructionManager
+    #region Private Fields
+
+    private static readonly HashSet<int> _destroyedViewIDs = new HashSet<int>();
+    private static readonly HashSet<int> _brokenHingeViewIDs = new HashSet<int>();
+
+    private const float HingeCacheRefreshInterval = 2f;
+    private static PhysGrabHinge[] _hingeCache = Array.Empty<PhysGrabHinge>();
+    private static float _hingeCacheLastRefreshTime;
+
+    #endregion
+
+    #region Public Marking Methods
+
+    /// <summary>
+    /// Marks a PhysGrabObject (identified by its PhotonView ID) as destroyed.
+    /// </summary>
+    /// <param name="viewID">The PhotonView ID of the destroyed object.</param>
+    public static void MarkObjectAsDestroyed(int viewID)
     {
-        #region Private Fields
-
-        private static readonly HashSet<int> _destroyedViewIDs = new HashSet<int>();
-        private static readonly HashSet<int> _brokenHingeViewIDs = new HashSet<int>();
-
-        // Cache interval for PhysGrabHinge to avoid expensive scene scans.
-        private const float HingeCacheRefreshInterval = 2f;
-        private static PhysGrabHinge[] _hingeCache = Array.Empty<PhysGrabHinge>();
-        private static float _hingeCacheLastRefreshTime;
-
-        #endregion
-
-        #region Public Marking Methods
-
-        public static void MarkObjectAsDestroyed(int viewID)
+        if (_destroyedViewIDs.Add(viewID))
         {
-            if (_destroyedViewIDs.Add(viewID))
-            {
-                LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Marking ViewID {viewID} as destroyed.");
-            }
-            else
-            {
-                LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Duplicate destroy mark for ViewID {viewID} ignored.");
-            }
-
-            // Remove from broken list to keep sets mutually exclusive.
-            _brokenHingeViewIDs.Remove(viewID);
+            LatePlugin.Log.LogDebug($"[DestructionManager] Marking ViewID {viewID} as destroyed.");
         }
-
-        public static void MarkHingeAsBroken(PhysGrabHinge hingeInstance, PhotonView pv)
-        {
-            if (pv == null)
-            {
-                LATE.Core.LatePlugin.Log.LogWarning("[DestructionManager] MarkHingeAsBroken called with null PhotonView.");
-                return;
-            }
-
-            if (_destroyedViewIDs.Contains(pv.ViewID))
-            {
-                LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Skipped break-mark – object {pv.ViewID} already destroyed.");
-                return;
-            }
-
-            if (_brokenHingeViewIDs.Add(pv.ViewID))
-            {
-                LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Marking hinge ViewID {pv.ViewID} as broken.");
-            }
-        }
-
-        #endregion
-
-        #region Scene Reset Methods
-
-        public static void ResetState()
-        {
-            LATE.Core.LatePlugin.Log.LogDebug("[DestructionManager] Clearing destruction/broken tracking & hinge cache.");
-            _destroyedViewIDs.Clear();
-            _brokenHingeViewIDs.Clear();
-            _hingeCache = Array.Empty<PhysGrabHinge>();
-            _hingeCacheLastRefreshTime = 0f;
-        }
-
-        #endregion
-
-        #region Sync for Late-Joiners
-
-        public static void SyncHingeStatesForPlayer(Player targetPlayer)
-        {
-            // Precondition checks.
-            if (!Utilities.IsRealMasterClient())
-            {
-                return;
-            }
-
-            if (targetPlayer == null)
-            {
-                return;
-            }
-
-            if (!PhotonNetwork.InRoom || SemiFunc.RunIsLobbyMenu())
-            {
-                return;
-            }
-
-            if (!PhotonNetwork.CurrentRoom.Players.ContainsKey(targetPlayer.ActorNumber))
-            {
-                return;
-            }
-
-            // If nothing is tracked, bail out.
-            if (_destroyedViewIDs.Count == 0 && _brokenHingeViewIDs.Count == 0)
-            {
-                return;
-            }
-
-            string targetNickname = targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
-            FieldInfo? brokenField = Utilities.pghBrokenField;
-            FieldInfo? closedField = Utilities.pghClosedField; // Get the cached field
-
-            if (brokenField == null || closedField == null) // Check both fields
-            {
-                LATE.Core.LatePlugin.Log.LogError("[DestructionManager] Reflection field 'broken' or 'closed' missing – cannot sync hinge states.");
-                return;
-            }
-
-            PhysGrabHinge[] cachedHinges = GetCachedHinges();
-            LATE.Core.LatePlugin.Log.LogInfo($"[DestructionManager] Syncing ALL hinge states to {targetNickname} (Total hinges: {cachedHinges.Length}).");
-
-            int brokenSyncCount = 0;
-            int openSyncCount = 0;
-            int closedSyncCount = 0; // Optional, for tracking
-
-            foreach (PhysGrabHinge hinge in cachedHinges)
-            {
-                if (hinge == null || hinge.gameObject == null) continue;
-
-                PhotonView? pv = Utilities.GetPhotonView(hinge);
-                if (pv == null) continue;
-
-                int viewID = pv.ViewID;
-
-                // Skip fully destroyed objects tracked separately (if applicable, otherwise this check might be redundant)
-                if (_destroyedViewIDs.Contains(viewID))
-                {
-                    LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Skipping hinge {viewID} sync: Marked as destroyed.");
-                    continue;
-                }
-
-                bool brokenOnHost;
-                bool closedOnHost;
-
-                try
-                {
-                    // Get both states using reflection
-                    brokenOnHost = (bool)(brokenField.GetValue(hinge) ?? false);
-                    closedOnHost = (bool)(closedField.GetValue(hinge) ?? true); // Default to true (closed) if reflection fails? Safer.
-                }
-                catch (Exception ex)
-                {
-                    LATE.Core.LatePlugin.Log.LogError($"[DestructionManager] Reflection failed getting state for hinge {viewID}: {ex}");
-                    continue;
-                }
-
-                // --- Sync Logic ---
-                if (brokenOnHost)
-                {
-                    // If the host says it's broken, send the break RPC.
-                    // Also ensure it's marked in our tracking.
-                    if (_brokenHingeViewIDs.Add(viewID)) // Add if not already marked
-                    {
-                        LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Marking hinge {viewID} as broken during sync.");
-                    }
-                    LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Sending HingeBreakRPC for broken hinge {viewID} to {targetNickname}.");
-                    pv.RPC("HingeBreakRPC", targetPlayer);
-                    brokenSyncCount++;
-                }
-                else // Hinge is NOT broken on host
-                {
-                    // If it's marked as broken locally but host says it's not, remove the mark.
-                    _brokenHingeViewIDs.Remove(viewID);
-
-                    // Now sync the open/closed state for non-broken hinges
-                    if (!closedOnHost) // Host says it's OPEN
-                    {
-                        LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Sending OpenImpulseRPC for OPEN hinge {viewID} to {targetNickname}.");
-                        pv.RPC("OpenImpulseRPC", targetPlayer); // Tell the client to open it
-                        openSyncCount++;
-                    }
-                    else // Host says it's CLOSED
-                    {
-                        // Optional: Send CloseImpulseRPC for robustness?
-                        // The default state is usually closed, so this might be redundant unless
-                        // a door could somehow be open on the client by default.
-                        // Let's skip sending CloseImpulseRPC for now to avoid unnecessary RPCs,
-                        // unless testing shows it's needed.
-                        closedSyncCount++; // Just count it for logging
-                        LATE.Core.LatePlugin.Log.LogDebug($"[DestructionManager] Hinge {viewID} is CLOSED on host, no RPC needed for {targetNickname}.");
-                    }
-                }
-            }
-
-            LATE.Core.LatePlugin.Log.LogInfo($"[DestructionManager] Hinge sync to {targetNickname} finished – Synced: {brokenSyncCount} Broken, {openSyncCount} Opened, {closedSyncCount} Confirmed Closed.");
-        }
-
-        #endregion
-
-        #region Internal Helpers
-
-        private static PhysGrabHinge[] GetCachedHinges()
-        {
-            if (_hingeCache.Length == 0 || Time.unscaledTime - _hingeCacheLastRefreshTime > HingeCacheRefreshInterval)
-            {
-#if UNITY_2022_2_OR_NEWER
-                _hingeCache = Object.FindObjectsByType<PhysGrabHinge>(FindObjectsSortMode.None);
-#else
-                _hingeCache = Object.FindObjectsOfType<PhysGrabHinge>();
-#endif
-                _hingeCacheLastRefreshTime = Time.unscaledTime;
-            }
-            return _hingeCache;
-        }
-
-        #endregion
+        _brokenHingeViewIDs.Remove(viewID); // Ensure mutual exclusivity
     }
+
+    /// <summary>
+    /// Marks a PhysGrabHinge as broken.
+    /// </summary>
+    /// <param name="hingeInstance">The PhysGrabHinge instance.</param>
+    /// <param name="pv">The PhotonView of the hinge.</param>
+    public static void MarkHingeAsBroken(PhysGrabHinge hingeInstance, PhotonView pv)
+    {
+        if (pv == null)
+        {
+            LatePlugin.Log.LogWarning("[DestructionManager] MarkHingeAsBroken called with null PhotonView.");
+            return;
+        }
+
+        if (_destroyedViewIDs.Contains(pv.ViewID))
+        {
+            LatePlugin.Log.LogDebug($"[DestructionManager] Skipped break-mark for hinge {pv.ViewID}: Object already marked as fully destroyed.");
+            return;
+        }
+
+        if (_brokenHingeViewIDs.Add(pv.ViewID))
+        {
+            LatePlugin.Log.LogDebug($"[DestructionManager] Marking hinge ViewID {pv.ViewID} as broken.");
+        }
+    }
+
+    #endregion
+
+    #region Scene Reset Methods
+
+    /// <summary>
+    /// Clears all tracked destruction states and the hinge cache.
+    /// Typically called when a new level loads.
+    /// </summary>
+    public static void ResetState()
+    {
+        LatePlugin.Log.LogDebug("[DestructionManager] Clearing destruction/broken tracking & hinge cache.");
+        _destroyedViewIDs.Clear();
+        _brokenHingeViewIDs.Clear();
+        _hingeCache = Array.Empty<PhysGrabHinge>();
+        _hingeCacheLastRefreshTime = 0f;
+    }
+
+    #endregion
+
+    #region Sync for Late-Joiners
+
+    /// <summary>
+    /// Synchronizes the states of all hinges (broken, open/closed) to a specific late-joining player.
+    /// This method is host-only.
+    /// </summary>
+    /// <param name="targetPlayer">The late-joining player to sync to.</param>
+    public static void SyncHingeStatesForPlayer(Player targetPlayer)
+    {
+        if (!PhotonUtilities.IsRealMasterClient() || targetPlayer == null || !PhotonNetwork.InRoom || SemiFunc.RunIsLobbyMenu())
+        {
+            return;
+        }
+        if (!PhotonNetwork.CurrentRoom.Players.ContainsKey(targetPlayer.ActorNumber)) return;
+        if (_destroyedViewIDs.Count == 0 && _brokenHingeViewIDs.Count == 0) return;
+
+        string targetNickname = targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
+        FieldInfo? brokenField = ReflectionCache.PhysGrabHinge_BrokenField;
+        FieldInfo? closedField = ReflectionCache.PhysGrabHinge_ClosedField;
+
+        if (brokenField == null || closedField == null)
+        {
+            LatePlugin.Log.LogError("[DestructionManager] Reflection field for hinge 'broken' or 'closed' missing from ReflectionCache – cannot sync hinge states.");
+            return;
+        }
+
+        PhysGrabHinge[] cachedHinges = GetCachedHinges(); // Uses GameUtilities.GetCachedComponents internally
+        LatePlugin.Log.LogInfo($"[DestructionManager] Syncing ALL hinge states to {targetNickname} (Total hinges in cache: {cachedHinges.Length}).");
+
+        int brokenSyncCount = 0;
+        int openSyncCount = 0;
+        int closedSyncCount = 0;
+
+        foreach (PhysGrabHinge hinge in cachedHinges)
+        {
+            if (hinge == null || hinge.gameObject == null) continue;
+
+            PhotonView? pv = PhotonUtilities.GetPhotonView(hinge);
+            if (pv == null) continue;
+
+            int viewID = pv.ViewID;
+
+            if (_destroyedViewIDs.Contains(viewID))
+            {
+                // LatePlugin.Log.LogDebug($"[DestructionManager] Skipping hinge {viewID} sync: Object fully destroyed.");
+                continue;
+            }
+
+            bool brokenOnHost;
+            bool closedOnHost;
+            try
+            {
+                brokenOnHost = (bool)(brokenField.GetValue(hinge) ?? false);
+                closedOnHost = (bool)(closedField.GetValue(hinge) ?? true); // Default to true (closed)
+            }
+            catch (Exception ex)
+            {
+                LatePlugin.Log.LogError($"[DestructionManager] Reflection failed getting state for hinge {viewID}: {ex}");
+                continue;
+            }
+
+            if (brokenOnHost)
+            {
+                if (_brokenHingeViewIDs.Add(viewID)) // Mark if not already, for consistency
+                {
+                    // LatePlugin.Log.LogDebug($"[DestructionManager] Ensuring hinge {viewID} is marked as broken during sync pass.");
+                }
+                //LatePlugin.Log.LogDebug($"[DestructionManager] Sending HingeBreakRPC for broken hinge {viewID} to {targetNickname}.");
+                pv.RPC("HingeBreakRPC", targetPlayer);
+                brokenSyncCount++;
+            }
+            else // Hinge is NOT broken on host
+            {
+                _brokenHingeViewIDs.Remove(viewID); // Ensure not marked if host says it's not broken
+
+                if (!closedOnHost) // Host says it's OPEN
+                {
+                    //LatePlugin.Log.LogDebug($"[DestructionManager] Sending OpenImpulseRPC for OPEN hinge {viewID} to {targetNickname}.");
+                    pv.RPC("OpenImpulseRPC", targetPlayer);
+                    openSyncCount++;
+                }
+                else // Host says it's CLOSED
+                {
+                    closedSyncCount++;
+                    //LatePlugin.Log.LogDebug($"[DestructionManager] Hinge {viewID} is CLOSED on host, no RPC needed for {targetNickname}.");
+                }
+            }
+        }
+        LatePlugin.Log.LogInfo($"[DestructionManager] Hinge sync to {targetNickname} finished – Synced: {brokenSyncCount} Broken, {openSyncCount} Opened, {closedSyncCount} Confirmed Closed.");
+    }
+    #endregion
+
+    #region Internal Helpers
+    private static PhysGrabHinge[] GetCachedHinges()
+    {
+        // GameUtilities.GetCachedComponents handles the caching logic
+        return GameUtilities.GetCachedComponents(ref _hingeCache, ref _hingeCacheLastRefreshTime, HingeCacheRefreshInterval);
+    }
+    #endregion
 }
