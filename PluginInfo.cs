@@ -1,9 +1,10 @@
-﻿namespace LATE
+﻿// File: L.A.T.E/PluginInfo.cs
+namespace LATE
 {
     public static class PluginInfo
     {
         public const string PLUGIN_GUID = "nilaier.late";
         public const string PLUGIN_NAME = "L.A.T.E";
-        public const string PLUGIN_VERSION = "1.1.0";
+        public const string PLUGIN_VERSION = "2.0.0";
     }
 }
