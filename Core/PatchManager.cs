@@ -6,7 +6,7 @@ using BepInEx.Logging;
 using HarmonyLib;
 using MonoMod.RuntimeDetour;
 using Photon.Realtime;
-using LATE.Patches.CoreGame; // For RunManagerPatches, GameDirectorPatches
+using LATE.Patches.CoreGame; // For RunManagerPatches, GameDirectorPatches, NetworkConnectPatches
 // Will add LATE.Patches.Player, etc. as those files get populated
 
 namespace LATE.Core;
@@ -17,23 +17,17 @@ internal static class PatchManager
     private static ManualLogSource? _logger;
     private static readonly List<Hook> _hooks = new List<Hook>();
 
-    // Attempt to get the type of the old monolithic Patches class.
-    // This class is expected to be in the root LATE namespace.
-    // Replace "L.A.T.E" with the actual assembly name if it's different.
-    private static readonly Type? _oldPatchesClassType = Type.GetType("LATE.Patches, L.A.T.E"); // Using new assembly name "LATE"
+    private static readonly Type? _oldPatchesClassType = Type.GetType("LATE.Patches, LATE");
 
-    // Updated to point to new patch classes as they are created
     private static readonly (Type TargetType, string TargetMethod, Type? HookType, string HookMethod)[] _monoModHooks =
     {
         (typeof(RunManager), "ChangeLevel", typeof(LATE.Patches.CoreGame.RunManagerPatches), nameof(LATE.Patches.CoreGame.RunManagerPatches.RunManager_ChangeLevelHook)),
-        // PlayerAvatar hooks will be updated when PlayerAvatarPatches.cs is populated
         (typeof(PlayerAvatar), "Spawn", _oldPatchesClassType, "PlayerAvatar_SpawnHook"),
         (typeof(PlayerAvatar), "Start", _oldPatchesClassType, "PlayerAvatar_StartHook"),
     };
 
     private static readonly (Type TargetType, string TargetMethod, Type? PatchType, string PatchMethod, Type[]? Args, bool Postfix)[] _explicitHarmonyPatches =
     {
-        // NetworkManager patches will be updated when NetworkManagerPatches.cs is populated
         (typeof(NetworkManager), nameof(NetworkManager.OnPlayerEnteredRoom), _oldPatchesClassType, "NetworkManager_OnPlayerEnteredRoom_Postfix", new[] { typeof(Player) }, true),
         (typeof(NetworkManager), nameof(NetworkManager.OnPlayerLeftRoom), _oldPatchesClassType, "NetworkManager_OnPlayerLeftRoom_Postfix", new[] { typeof(Player) }, true),
     };
@@ -74,7 +68,7 @@ internal static class PatchManager
     private static void TryApplyMonoModHook(Type targetType, string targetMethodName, Type hookType, string hookMethodName)
     {
         MethodInfo? targetMI = FindMethod(targetType, targetMethodName);
-        MethodInfo? hookMI = FindMethod(hookType, hookMethodName); // hookType is now guaranteed non-null here
+        MethodInfo? hookMI = FindMethod(hookType, hookMethodName);
 
         if (targetMI == null)
         {
@@ -106,14 +100,15 @@ internal static class PatchManager
             // Patch new, granular classes
             _harmonyInstance!.PatchAll(typeof(LATE.Patches.CoreGame.RunManagerPatches));
             _harmonyInstance!.PatchAll(typeof(LATE.Patches.CoreGame.GameDirectorPatches));
+            _harmonyInstance!.PatchAll(typeof(LATE.Patches.CoreGame.NetworkConnectPatches)); // Added this line
             // Will add more PatchAll calls here for PlayerAvatarPatches, NetworkManagerPatches, etc. as they are populated.
 
 
             // Patch old monolithic classes by their fully qualified name if they still contain patch methods
-            // The assembly name for LATE.Patches should now be "LATE" based on csproj.
-            PatchOldClassIfExists("LATE.Patches, LATE", "old LATE.Patches (monolithic)"); // Updated assembly name
-            PatchOldClassIfExists("LATE.NetworkConnect_Patches, LATE", "old LATE.NetworkConnect_Patches"); // Updated assembly name
-            PatchOldClassIfExists("LATE.TruckScreenText_ChatBoxState_EarlyLock_Patches, LATE", "old LATE.TruckScreenText_ChatBoxState_EarlyLock_Patches"); // Updated assembly name
+            PatchOldClassIfExists("LATE.Patches, LATE", "old LATE.Patches (monolithic)");
+            // Updated: Remove NetworkConnect_Patches from here as it's now fully migrated.
+            // PatchOldClassIfExists("LATE.NetworkConnect_Patches, LATE", "old LATE.NetworkConnect_Patches"); 
+            PatchOldClassIfExists("LATE.TruckScreenText_ChatBoxState_EarlyLock_Patches, LATE", "old LATE.TruckScreenText_ChatBoxState_EarlyLock_Patches");
 
             foreach (var (targetType, targetMethod, patchType, patchMethod, args, postfix) in _explicitHarmonyPatches)
             {
@@ -149,7 +144,7 @@ internal static class PatchManager
     private static void TryApplyHarmonyPatch(Type targetType, string targetMethodName, Type patchType, string patchMethodName, Type[]? arguments, bool postfix)
     {
         MethodInfo? targetMI = FindMethod(targetType, targetMethodName, arguments);
-        MethodInfo? patchMI = FindMethod(patchType, patchMethodName); // patchType is now guaranteed non-null here
+        MethodInfo? patchMI = FindMethod(patchType, patchMethodName);
 
         if (targetMI == null)
         {
