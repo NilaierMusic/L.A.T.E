@@ -8,71 +8,68 @@ using HarmonyLib;
 using MonoMod.RuntimeDetour;
 using Photon.Realtime;
 using UnityEngine;
-using LATE.Config; // Updated
-using LATE.Managers.GameState; // Updated
-using LATE.DataModels; // Added for GameVersion
-// LATE.Utilities will be added when GameUtilities is moved/created
+using LATE.Config;
+using LATE.Managers.GameState;
+using LATE.DataModels;
+// LATE.Patches, LATE.NetworkConnect_Patches etc will be updated as those files are refactored
+// For now, assuming they might be in the root LATE namespace or a LATE.Patches namespace
+// We will use fully qualified names for now if they are still in root LATE namespace to avoid ambiguity.
 
 namespace LATE.Core; // File-scoped namespace
 
-[BepInPlugin(LATE.PluginInfo.PLUGIN_GUID, LATE.PluginInfo.PLUGIN_NAME, LATE.PluginInfo.PLUGIN_VERSION)] // Using LATE.PluginInfo
+[BepInPlugin(LATE.PluginInfo.PLUGIN_GUID, LATE.PluginInfo.PLUGIN_NAME, LATE.PluginInfo.PLUGIN_VERSION)]
 internal sealed class LatePlugin : BaseUnityPlugin
 {
-    // Static properties to hold the BepInEx logger and Harmony instance.
     internal static ManualLogSource Log { get; private set; } = null!;
     internal static Harmony HarmonyInstance { get; private set; } = null!;
 
-    // Private cached fields.
-    private static readonly List<Hook> _hooks = new List<Hook>(); // Keep hooks alive.
-    // _coroutineRunner will be moved to CoroutineHelper
+    // This list will be moved to a dedicated PatchManager in LATE.Core
+    private static readonly List<Hook> _hooks = new List<Hook>();
 
-    // Public property to lazily initialize the CoroutineRunner.
-    // This will be moved to CoroutineHelper, and accessed via CoroutineHelper.CoroutineRunner
-    internal static MonoBehaviour? CoroutineRunner
-    {
-        get => CoroutineHelper.CoroutineRunner; // Will change to this
-    }
+    // This property now delegates to CoroutineHelper
+    internal static MonoBehaviour? CoroutineRunner => CoroutineHelper.CoroutineRunner;
 
-    // MonoMod hook definitions.
-    // These class names (Patches, NetworkConnect_Patches, etc.) will be updated when those files are refactored
+    // These definitions will be moved to a dedicated PatchManager in LATE.Core
+    // For now, their types will need to be fully qualified if they are not yet in LATE.Patches namespace
     private static readonly (Type TargetType, string TargetMethod, Type HookType, string HookMethod)[] _monoModHooks =
     {
+        // Assuming old LATE.Patches class for now
         (typeof(RunManager), "ChangeLevel", typeof(LATE.Patches), nameof(LATE.Patches.RunManager_ChangeLevelHook)),
         (typeof(PlayerAvatar), "Spawn", typeof(LATE.Patches), nameof(LATE.Patches.PlayerAvatar_SpawnHook)),
         (typeof(PlayerAvatar), "Start", typeof(LATE.Patches), nameof(LATE.Patches.PlayerAvatar_StartHook))
     };
 
-    // Explicit Harmony patches definitions.
     private static readonly (Type TargetType, string TargetMethod, Type PatchType, string PatchMethod, Type[]? Args, bool Postfix)[] _explicitHarmonyPatches =
     {
+        // Assuming old LATE.Patches class for now
         (typeof(NetworkManager), nameof(NetworkManager.OnPlayerEnteredRoom), typeof(LATE.Patches), nameof(LATE.Patches.NetworkManager_OnPlayerEnteredRoom_Postfix), new[] { typeof(Player) }, true),
         (typeof(NetworkManager), nameof(NetworkManager.OnPlayerLeftRoom), typeof(LATE.Patches), nameof(LATE.Patches.NetworkManager_OnPlayerLeftRoom_Postfix), new[] { typeof(Player) }, true)
     };
 
-    // Unity Awake – called when the plugin loads.
     private void Awake()
     {
-        Log = Logger; // Bind the BepInEx logger.
-        HarmonyInstance = new Harmony(LATE.PluginInfo.PLUGIN_GUID); // Using LATE.PluginInfo
+        Log = Logger;
+        HarmonyInstance = new Harmony(LATE.PluginInfo.PLUGIN_GUID);
 
-        Log.LogInfo($"{LATE.PluginInfo.PLUGIN_NAME} v{LATE.PluginInfo.PLUGIN_VERSION} is loading…"); // Using LATE.PluginInfo
+        Log.LogInfo($"{LATE.PluginInfo.PLUGIN_NAME} v{LATE.PluginInfo.PLUGIN_VERSION} is loading…");
 
-        DataModels.GameVersion detectedVersion = GameVersionSupport.DetectVersion(); // Using LATE.DataModels.GameVersion
+        GameVersion detectedVersion = GameVersionSupport.DetectVersion();
         Log.LogInfo($"Detected Game Version: {detectedVersion}");
-        if (detectedVersion == DataModels.GameVersion.Unknown) // Using LATE.DataModels.GameVersion
+        if (detectedVersion == GameVersion.Unknown)
         {
             Log.LogError("Failed to determine game version. Mod features related to Steam lobby management might not work correctly.");
         }
 
-        ConfigManager.Initialize(Config); // Load configuration.
+        ConfigManager.Initialize(Config);
 
+        // Patch application will be moved to a dedicated PatchManager class
         ApplyMonoModHooks();
         ApplyHarmonyPatches();
 
-        Log.LogInfo($"{LATE.PluginInfo.PLUGIN_NAME} finished loading!"); // Using LATE.PluginInfo
+        Log.LogInfo($"{LATE.PluginInfo.PLUGIN_NAME} finished loading!");
     }
 
-    // Apply MonoMod hooks.
+    // This method will be moved to Core.PatchManager
     private static void ApplyMonoModHooks()
     {
         Log.LogInfo("Applying MonoMod hooks…");
@@ -83,7 +80,7 @@ internal sealed class LatePlugin : BaseUnityPlugin
         Log.LogInfo("MonoMod hook application finished.");
     }
 
-    // Attempt to apply a single MonoMod hook.
+    // This method will be moved to Core.PatchManager
     private static void TryApplyMonoModHook(Type targetType, string targetMethodName, Type hookType, string hookMethodName)
     {
         MethodInfo? targetMI = FindMethod(targetType, targetMethodName);
@@ -94,7 +91,6 @@ internal sealed class LatePlugin : BaseUnityPlugin
             Log.LogError($"[MonoMod] Target not found: {targetType.FullName}.{targetMethodName}");
             return;
         }
-
         if (hookMI == null)
         {
             Log.LogError($"[MonoMod] Hook not found: {hookType.FullName}.{hookMethodName}");
@@ -103,7 +99,7 @@ internal sealed class LatePlugin : BaseUnityPlugin
 
         try
         {
-            _hooks.Add(new Hook(targetMI, hookMI)); // Keep the hook alive.
+            _hooks.Add(new Hook(targetMI, hookMI));
             Log.LogDebug($"[MonoMod] Hooked {targetType.Name}.{targetMethodName}");
         }
         catch (Exception ex)
@@ -112,25 +108,21 @@ internal sealed class LatePlugin : BaseUnityPlugin
         }
     }
 
-    // Apply all Harmony patches.
+    // This method will be moved to Core.PatchManager
     private static void ApplyHarmonyPatches()
     {
         Log.LogInfo("Applying Harmony patches…");
         try
         {
-            // Apply attribute-driven patches.
-            // These types (Patches, NetworkConnect_Patches, etc.) will need their namespaces updated
-            // once they are moved and refactored. For now, assuming they are still in LATE namespace.
+            // Assuming old LATE.Patches, LATE.NetworkConnect_Patches, LATE.TruckScreenText_ChatBoxState_EarlyLock_Patches class for now
             HarmonyInstance.PatchAll(typeof(LATE.Patches));
             HarmonyInstance.PatchAll(typeof(LATE.NetworkConnect_Patches));
             HarmonyInstance.PatchAll(typeof(LATE.TruckScreenText_ChatBoxState_EarlyLock_Patches));
 
-            // Apply explicit patches (with parameters and postfix options).
             foreach (var (targetType, targetMethod, patchType, patchMethod, args, postfix) in _explicitHarmonyPatches)
             {
                 TryApplyHarmonyPatch(targetType, targetMethod, patchType, patchMethod, args, postfix);
             }
-
             Log.LogInfo("Harmony patches applied successfully.");
         }
         catch (Exception ex)
@@ -139,7 +131,7 @@ internal sealed class LatePlugin : BaseUnityPlugin
         }
     }
 
-    // Attempt to apply a single Harmony patch.
+    // This method will be moved to Core.PatchManager
     private static void TryApplyHarmonyPatch(Type targetType, string targetMethodName, Type patchType, string patchMethodName, Type[]? arguments, bool postfix)
     {
         MethodInfo? targetMI = FindMethod(targetType, targetMethodName, arguments);
@@ -150,7 +142,6 @@ internal sealed class LatePlugin : BaseUnityPlugin
             Log.LogError($"[Harmony] Target not found: {targetType.FullName}.{targetMethodName}");
             return;
         }
-
         if (patchMI == null)
         {
             Log.LogError($"[Harmony] Patch not found: {patchType.FullName}.{patchMethodName}");
@@ -166,11 +157,10 @@ internal sealed class LatePlugin : BaseUnityPlugin
         {
             HarmonyInstance.Patch(targetMI, prefix: harmonyMethod);
         }
-
         Log.LogDebug($"[Harmony] Patched {targetType.Name}.{targetMethodName} ({(postfix ? "postfix" : "prefix")})");
     }
 
-    // Helper for finding a method with optional arguments.
+    // This method will be moved to Core.PatchManager
     private static MethodInfo? FindMethod(Type type, string methodName, Type[]? arguments = null)
     {
         return arguments == null
@@ -178,10 +168,9 @@ internal sealed class LatePlugin : BaseUnityPlugin
             : AccessTools.Method(type, methodName, arguments);
     }
 
-    // Clears the cached CoroutineRunner reference.
-    // This will be moved to CoroutineHelper
+    // This method is now handled by CoroutineHelper
     internal static void ClearCoroutineRunnerCache()
     {
-        CoroutineHelper.ClearCoroutineRunnerCache(); // Will change to this
+        CoroutineHelper.ClearCoroutineRunnerCache();
     }
 }

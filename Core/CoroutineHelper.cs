@@ -1,6 +1,6 @@
 // File: L.A.T.E/Core/CoroutineHelper.cs
 using UnityEngine;
-using LATE.Utilities; // For GameUtilities
+using LATE.Utilities; // Now correctly refers to the LATE.Utilities namespace
 
 namespace LATE.Core; // File-scoped namespace
 
@@ -22,6 +22,7 @@ internal static class CoroutineHelper
         {
             if (_coroutineRunner == null)
             {
+                // Now calls the method on GameUtilities within the LATE.Utilities namespace
                 _coroutineRunner = GameUtilities.FindCoroutineRunner();
             }
             return _coroutineRunner;

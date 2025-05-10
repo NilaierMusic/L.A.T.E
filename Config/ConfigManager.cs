@@ -90,7 +90,8 @@ internal static class ConfigManager
 
         // Apply current value and react to future edits.
         ApplyLogLevel(ModLogLevel.Value);
-        ModLogLevel.SettingChanged += (_, args) => ApplyLogLevel(args.NewValue); // Corrected: use args.NewValue
+        // Reverted to using ModLogLevel.Value directly in the handler to avoid EventArgs typing issues.
+        ModLogLevel.SettingChanged += (_, __) => ApplyLogLevel(ModLogLevel.Value);
 
         Log.LogDebug("[Config] All entries bound");
     }
