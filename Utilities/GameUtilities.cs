@@ -1,45 +1,29 @@
 ﻿// File: L.A.T.E/Utilities/GameUtilities.cs
-// Note: Many fields and methods previously here have been moved to ReflectionCache.cs or PhotonUtilities.cs
-using LATE.Core; // For LatePlugin.Log
-using Photon.Realtime; // For Player
+using LATE.Core;
+using Photon.Pun; // Added for PhotonView
+using Photon.Realtime;
 using System;
-using System.Collections.Generic; // For IList for Shuffle
-using System.Reflection; // For FieldInfo (though specific fields moved)
+using System.Collections.Generic;
+using System.Reflection;
 using UnityEngine;
 using Object = UnityEngine.Object;
-// No longer needs using Photon.Pun; or ExitGames.Client.Photon; or Hashtable directly here
 
-namespace LATE.Utilities; // File-scoped namespace
+namespace LATE.Utilities;
 
-/// <summary>
-/// Provides general game-related utility functions.
-/// Reflection field caches are now in ReflectionCache.cs.
-/// Photon-specific utilities are in PhotonUtilities.cs.
-/// </summary>
 internal static class GameUtilities
 {
-    // Reflection fields have been moved to ReflectionCache.cs
-    // Static constructor that checked fields has been moved to ReflectionCache.cs
-
     #region ─── Scene/State Checks ──────────────────────────────────────────────
-    /// <summary>
-    /// Checks if the L.A.T.E mod logic should be active in the current game state/scene.
-    /// Logic should generally be disabled in Main Menu, Lobby Menu, and Tutorial.
-    /// </summary>
-    /// <returns>True if the mod logic should be active, false otherwise.</returns>
     public static bool IsModLogicActive()
     {
         if (SemiFunc.IsMainMenu()) return false;
-        if (RunManager.instance == null) return false; // Early exit if RunManager isn't even up
+        if (RunManager.instance == null) return false;
         if (SemiFunc.RunIsLobbyMenu()) return false;
         if (SemiFunc.RunIsTutorial()) return false;
-        return true; // Assumed to be in a gameplay scene (Truck, Shop, Level, Arena)
+        return true;
     }
     #endregion
 
-    #region ─── Enemy Helpers (To be reviewed for EnemySyncManager / uses ReflectionCache) ──────────────────
-    // These methods now use ReflectionCache for their field lookups.
-
+    #region ─── Enemy Helpers (Uses ReflectionCache) ─────────────────────────
     internal static bool TryGetEnemyPhotonView(Enemy enemy, out PhotonView? enemyPv)
     {
         enemyPv = null;
@@ -79,7 +63,6 @@ internal static class GameUtilities
 
     internal static PlayerAvatar? GetInternalPlayerTarget(object enemyControllerInstance, FieldInfo? targetFieldInfo, string enemyTypeName)
     {
-        // targetFieldInfo will come from ReflectionCache.EnemyXYZ_TargetField
         if (enemyControllerInstance == null || targetFieldInfo == null) return null;
         try
         {
@@ -87,7 +70,7 @@ internal static class GameUtilities
         }
         catch (Exception ex)
         {
-            LatePlugin.Log.LogError($"[GameUtilities] Failed reflecting {enemyTypeName}.playerTarget (using provided FieldInfo): {ex}");
+            LatePlugin.Log.LogError($"[GameUtilities] Failed reflecting {enemyTypeName}.playerTarget (using FieldInfo '{targetFieldInfo.Name}'): {ex}");
             return null;
         }
     }
@@ -102,29 +85,19 @@ internal static class GameUtilities
             {
                 vision = ReflectionCache.Enemy_VisionField.GetValue(enemy) as EnemyVision;
             }
-            if (vision == null)
-            {
-                // Fallback if reflection failed or field was null
-                vision = enemy.GetComponent<EnemyVision>();
-            }
+            if (vision == null) vision = enemy.GetComponent<EnemyVision>();
         }
         catch (Exception ex)
         {
             LatePlugin.Log.LogError($"[GameUtilities] Error getting EnemyVision for '{enemy.gameObject?.name ?? "NULL"}': {ex}");
             vision = null;
         }
-        if (vision == null)
-        {
-            LatePlugin.Log.LogWarning($"[GameUtilities] Failed to get EnemyVision for enemy '{enemy.gameObject?.name ?? "NULL"}'.");
-        }
+        if (vision == null) LatePlugin.Log.LogWarning($"[GameUtilities] Failed to get EnemyVision for enemy '{enemy.gameObject?.name ?? "NULL"}'.");
         return vision;
     }
     #endregion
 
     #region ─── Component Cache ─────────────────────────────────────────────────────
-    /// <summary>
-    /// Lightweight scene-wide cache for a specific component type.
-    /// </summary>
     public static T[] GetCachedComponents<T>(ref T[] cache, ref float timeStamp, float refreshSeconds = 2f) where T : Object
     {
         if (cache == null || cache.Length == 0 || Time.unscaledTime - timeStamp > refreshSeconds)
@@ -141,10 +114,6 @@ internal static class GameUtilities
     #endregion
 
     #region ─── Coroutine Runner Methods ───────────────────────────────────────────
-    /// <summary>
-    /// Finds a suitable MonoBehaviour instance to run coroutines on.
-    /// Prefers RunManager, falls back to GameDirector.
-    /// </summary>
     public static MonoBehaviour? FindCoroutineRunner()
     {
         LatePlugin.Log.LogDebug("[GameUtilities] Finding coroutine runner…");
@@ -160,25 +129,13 @@ internal static class GameUtilities
     #endregion
 
     #region ─── ValuablePropSwitch Helper ──────────────────────────────────────────
-    /// <summary>
-    /// Gets the FieldInfo for the internal ValuablePropSwitch.SetupComplete field via ReflectionCache.
-    /// </summary>
     internal static FieldInfo? GetVpsSetupCompleteField()
     {
-        // No local caching needed here, ReflectionCache handles it.
-        // We just return the cached field from ReflectionCache.
-        if (ReflectionCache.ValuablePropSwitch_SetupCompleteField == null)
-        {
-            // Logged by ReflectionCache's static constructor if critical and missing
-        }
         return ReflectionCache.ValuablePropSwitch_SetupCompleteField;
     }
     #endregion
 
     #region ─── Player Avatar Methods ──────────────────────────────────────────────
-    /// <summary>
-    /// Finds the PlayerAvatar associated with a given Photon Player.
-    /// </summary>
     public static PlayerAvatar? FindPlayerAvatar(Player player)
     {
         if (player == null) return null;
@@ -187,48 +144,41 @@ internal static class GameUtilities
             foreach (var avatar in GameDirector.instance.PlayerList)
             {
                 if (avatar == null) continue;
-                var pv = PhotonUtilities.GetPhotonView(avatar); // Use PhotonUtilities
+                PhotonView? pv = PhotonUtilities.GetPhotonView(avatar);
                 if (pv != null && pv.OwnerActorNr == player.ActorNumber) return avatar;
             }
         }
-        // Fallback: Search all PlayerAvatars in the scene.
         foreach (PlayerAvatar avatar in Object.FindObjectsOfType<PlayerAvatar>())
         {
             if (avatar == null) continue;
-            var pv = PhotonUtilities.GetPhotonView(avatar); // Use PhotonUtilities
+            PhotonView? pv = PhotonUtilities.GetPhotonView(avatar);
             if (pv != null && pv.OwnerActorNr == player.ActorNumber) return avatar;
         }
         LatePlugin.Log.LogWarning($"[GameUtilities] Could not find PlayerAvatar for {player.NickName} (ActorNr: {player.ActorNumber}).");
         return null;
     }
 
-    /// <summary>
-    /// Finds the PlayerAvatar belonging to the local player.
-    /// </summary>
     public static PlayerAvatar? FindLocalPlayerAvatar()
     {
         if (PlayerController.instance?.playerAvatar?.GetComponent<PlayerAvatar>() is PlayerAvatar localAvatar &&
-            PhotonUtilities.GetPhotonView(localAvatar)?.IsMine == true) // Use PhotonUtilities
+            PhotonUtilities.GetPhotonView(localAvatar)?.IsMine == true)
         {
             return localAvatar;
         }
         foreach (PlayerAvatar avatar in Object.FindObjectsOfType<PlayerAvatar>())
         {
             if (avatar == null) continue;
-            if (PhotonUtilities.GetPhotonView(avatar)?.IsMine == true) return avatar; // Use PhotonUtilities
+            if (PhotonUtilities.GetPhotonView(avatar)?.IsMine == true) return avatar;
         }
         return null;
     }
     #endregion
 
     #region ─── Player Nickname Helper ─────────────────────────────────────────────
-    /// <summary>
-    /// Safely gets a display name for a player avatar, prioritizing Photon NickName.
-    /// </summary>
     public static string GetPlayerNickname(PlayerAvatar avatar)
     {
         if (avatar == null) return "<NullAvatar>";
-        var pv = PhotonUtilities.GetPhotonView(avatar); // Use PhotonUtilities
+        PhotonView? pv = PhotonUtilities.GetPhotonView(avatar);
 
         if (pv?.Owner?.NickName != null) return pv.Owner.NickName;
 
@@ -250,9 +200,6 @@ internal static class GameUtilities
     #endregion
 
     #region ─── PhysGrabber Helper ─────────────────────────────────────────────────
-    /// <summary>
-    /// Safely retrieves the PhotonView ID of a player's PhysGrabber using ReflectionCache.
-    /// </summary>
     internal static int GetPhysGrabberViewId(PlayerAvatar playerAvatar)
     {
         if (playerAvatar == null || ReflectionCache.PlayerAvatar_PhysGrabberField == null || ReflectionCache.PhysGrabber_PhotonViewField == null) return -1;
@@ -272,10 +219,6 @@ internal static class GameUtilities
 
     #region --- Shuffle Extension ---
     private static readonly System.Random Rng = new System.Random();
-
-    /// <summary>
-    /// Randomly shuffles the elements of a list using the Fisher-Yates algorithm.
-    /// </summary>
     public static void Shuffle<T>(this IList<T> list)
     {
         int n = list.Count;
