@@ -5,10 +5,11 @@ using System.Reflection;
 using BepInEx.Logging;
 using HarmonyLib;
 using MonoMod.RuntimeDetour;
-using Photon.Realtime;
 using LATE.Patches.CoreGame;
 using LATE.Patches.Player;
-using LATE.Patches.Objects; // Added for PhysGrabObjectPatches
+using LATE.Patches.Objects;
+using LATE.Patches.Enemies;
+using LATE.Patches.UI;
 
 namespace LATE.Core;
 
@@ -17,8 +18,6 @@ internal static class PatchManager
     private static Harmony? _harmonyInstance;
     private static ManualLogSource? _logger;
     private static readonly List<Hook> _hooks = new List<Hook>();
-
-    private static readonly Type? _oldPatchesClassType = Type.GetType("LATE.Patches, LATE");
 
     private static readonly (Type TargetType, string TargetMethod, Type? HookType, string HookMethod)[] _monoModHooks =
     {
@@ -38,15 +37,6 @@ internal static class PatchManager
         _harmonyInstance = harmonyInstance ?? throw new ArgumentNullException(nameof(harmonyInstance));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-        if (_oldPatchesClassType == null)
-        {
-            _logger.LogInfo("[PatchManager] Old 'LATE.Patches' class not found. This is expected if all patches are migrated.");
-        }
-        else
-        {
-            _logger.LogInfo($"[PatchManager] Found old 'LATE.Patches' class type: {_oldPatchesClassType.FullName}. Will attempt to use it if explicit patches still point there.");
-        }
-
         ApplyMonoModHooks();
         ApplyHarmonyPatches();
     }
@@ -58,7 +48,7 @@ internal static class PatchManager
         {
             if (hookType == null)
             {
-                _logger!.LogWarning($"[MonoMod] Skipping hook for {targetType.Name}.{targetMethod} because its hook type was not resolved.");
+                _logger!.LogWarning($"[MonoMod] Skipping hook for {targetType.Name}.{targetMethod} because its hook type was not resolved (this might be okay if it's an old, removed hook definition).");
                 continue;
             }
             TryApplyMonoModHook(targetType, targetMethod, hookType, hookMethod);
@@ -95,48 +85,45 @@ internal static class PatchManager
 
     private static void ApplyHarmonyPatches()
     {
-        _logger!.LogInfo("[PatchManager] Applying Harmony patches…");
+        _logger!.LogInfo("[PatchManager] Applying Harmony attribute-driven patches…");
         try
         {
+            // Core Game Systems
             _harmonyInstance!.PatchAll(typeof(LATE.Patches.CoreGame.RunManagerPatches));
             _harmonyInstance!.PatchAll(typeof(LATE.Patches.CoreGame.GameDirectorPatches));
             _harmonyInstance!.PatchAll(typeof(LATE.Patches.CoreGame.NetworkConnectPatches));
+
+            // Player Systems
             _harmonyInstance!.PatchAll(typeof(LATE.Patches.Player.PlayerAvatarPatches));
             _harmonyInstance!.PatchAll(typeof(LATE.Patches.Player.NetworkManagerPatches));
-            _harmonyInstance!.PatchAll(typeof(LATE.Patches.Objects.PhysGrabObjectPatches)); // Added this line
 
+            // Object Systems
+            _harmonyInstance!.PatchAll(typeof(LATE.Patches.Objects.PhysGrabObjectPatches));
+            _harmonyInstance!.PatchAll(typeof(LATE.Patches.Objects.PhysGrabHingePatches));
 
-            PatchOldClassIfExists("LATE.Patches, LATE", "old LATE.Patches (monolithic attribute patches)");
-            PatchOldClassIfExists("LATE.TruckScreenText_ChatBoxState_EarlyLock_Patches, LATE", "old LATE.TruckScreenText_ChatBoxState_EarlyLock_Patches");
+            // Enemy Systems
+            _harmonyInstance!.PatchAll(typeof(LATE.Patches.Enemies.EnemyVisionPatches));
 
+            // UI Systems
+            _harmonyInstance!.PatchAll(typeof(LATE.Patches.UI.TruckScreenTextPatches));
+
+            _logger!.LogInfo("[PatchManager] Attribute-driven patching complete.");
+
+            _logger!.LogInfo("[PatchManager] Applying explicit Harmony patches…");
             foreach (var (targetType, targetMethod, patchType, patchMethodName, args, postfix) in _explicitHarmonyPatches)
             {
                 if (patchType == null)
                 {
-                    _logger!.LogWarning($"[Harmony] Skipping explicit patch for {targetType.Name}.{targetMethod} because its patch type was not resolved.");
+                    _logger!.LogWarning($"[Harmony] Skipping explicit patch for {targetType.Name}.{targetMethod} because its patch type was not resolved (this might be okay if it's an old, removed patch definition).");
                     continue;
                 }
                 TryApplyHarmonyPatch(targetType, targetMethod, patchType, patchMethodName, args, postfix);
             }
-            _logger!.LogInfo("[PatchManager] Harmony patch application process finished.");
+            _logger!.LogInfo("[PatchManager] Explicit Harmony patch application finished.");
         }
         catch (Exception ex)
         {
             _logger!.LogError($"[PatchManager] Failed to apply Harmony patches: {ex}");
-        }
-    }
-
-    private static void PatchOldClassIfExists(string typeNameWithAssembly, string description)
-    {
-        Type? oldType = Type.GetType(typeNameWithAssembly);
-        if (oldType != null)
-        {
-            _logger!.LogInfo($"[PatchManager] Applying Harmony attribute patches from {description} (Type: {oldType.FullName}). This is temporary and should be removed once all patches are migrated.");
-            _harmonyInstance!.PatchAll(oldType);
-        }
-        else
-        {
-            _logger!.LogInfo($"[PatchManager] Could not find type '{typeNameWithAssembly}' for temporary patching of {description}. If all patches from it are migrated, this is expected.");
         }
     }
 
@@ -178,7 +165,8 @@ internal static class PatchManager
         }
         catch (Exception ex)
         {
-            _logger?.LogError($"[Reflection] Error finding method {type.Name}.{methodName}: {ex.Message}");
+            // Log the error but allow the process to continue to find other methods.
+            _logger?.LogError($"[Reflection] Error finding method {type.Name}.{methodName} with specified arguments: {ex.Message}");
             return null;
         }
     }
