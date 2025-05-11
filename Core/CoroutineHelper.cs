@@ -1,6 +1,6 @@
 // File: L.A.T.E/Core/CoroutineHelper.cs
 using UnityEngine;
-using LATE.Utilities; // Now correctly refers to the LATE.Utilities namespace
+using LATE.Utilities;
 
 namespace LATE.Core; // File-scoped namespace
 

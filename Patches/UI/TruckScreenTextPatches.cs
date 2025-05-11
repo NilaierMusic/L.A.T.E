@@ -1,11 +1,11 @@
 // File: L.A.T.E/Patches/UI/TruckScreenTextPatches.cs
 using HarmonyLib;
-using Photon.Pun; // For PhotonNetwork
-using System; // For Exception
-using System.Reflection; // For FieldInfo
 using LATE.Core; // For LatePlugin.Log
 using LATE.Managers.GameState; // For GameVersionSupport
 using LATE.Utilities; // For PhotonUtilities
+using Photon.Pun; // For PhotonNetwork
+using LATE.Patches.CoreGame;
+using System.Reflection; // For FieldInfo
 
 namespace LATE.Patches.UI; // File-scoped namespace
 
@@ -22,13 +22,15 @@ internal static class EarlyLobbyLockHelper
     /// <param name="reason">A descriptive string for logging the reason for the lock.</param>
     internal static void TryLockLobby(string reason)
     {
-        // Only the host should perform these actions.
         if (!PhotonUtilities.IsRealMasterClient())
         {
             return;
         }
 
-        LatePlugin.Log.LogInfo($"[L.A.T.E.] [Early Lock] Host is about to change level (Trigger: {reason}). Locking lobby NOW.");
+        // Set the flag when the game is first truly starting.
+        RunManagerPatches.SetInitialPublicListingPhaseComplete(true);
+
+        LatePlugin.Log.LogInfo($"[L.A.T.E.] [Early Lock] Host is about to change level (Trigger: {reason}). Locking lobby NOW. Initial public phase marked complete.");
 
         // Lock Photon Room
         if (PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null)
