@@ -9,6 +9,7 @@ using LATE.Core;
 using LATE.Managers;
 using LATE.Managers.GameState;
 using LATE.Utilities;
+using LATE.Patches.Player; // Added for PlayerAvatarPatches access
 
 // Explicitly using UnityEngine.Object to avoid ambiguity with System.Object
 using UnityObject = UnityEngine.Object;
@@ -69,20 +70,24 @@ internal static class RunManagerPatches
         RunManager.ChangeLevelType changeLevelType)
     {
         LatePlugin.Log.LogDebug("[RunManagerPatches] ChangeLevelHook: Clearing trackers.");
-        // Patches.spawnPositionAssigned.Clear(); // This state belongs to PlayerAvatarPatches
+
+        // Reset scene-specific state from PlayerAvatarPatches
+        PlayerAvatarPatches.spawnPositionAssigned.Clear();
+        PlayerAvatarPatches._reloadHasBeenTriggeredThisScene = false;
+        LatePlugin.Log.LogDebug("[RunManagerPatches] Cleared PlayerAvatarPatches scene state (spawnPositionAssigned, _reloadHasBeenTriggeredThisScene).");
+
         LateJoinManager.ResetSceneTracking();
         DestructionManager.ResetState();
         PlayerStateManager.ResetPlayerStatuses();
         PlayerPositionManager.ResetPositions();
-        // Patches._reloadHasBeenTriggeredThisScene = false; // This state belongs to PlayerAvatarPatches
 
         _shouldOpenLobbyAfterGen = false;
 
-        if (ConfigManager.AllowInShop == null)
+        if (ConfigManager.AllowInShop == null) // A basic check for config readiness
         {
-            LatePlugin.Log.LogError("[RunManagerPatches] Config values not bound!");
-            if (PhotonNetwork.InRoom) PhotonNetwork.CurrentRoom.IsOpen = false;
-            orig.Invoke(self, completedLevel, levelFailed, changeLevelType);
+            LatePlugin.Log.LogError("[RunManagerPatches] Config values not bound (AllowInShop is null)! This indicates a potential load order issue or incomplete initialization.");
+            if (PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null) PhotonNetwork.CurrentRoom.IsOpen = false; // Keep lobby closed on critical config error
+            orig.Invoke(self, completedLevel, levelFailed, changeLevelType); // Still perform level change
             return;
         }
 
@@ -110,6 +115,7 @@ internal static class RunManagerPatches
 
         orig.Invoke(self, completedLevel, levelFailed, changeLevelType);
 
+        // Post level change logic
         bool modLogicActiveInNewScene = GameUtilities.IsModLogicActive();
         if (!modLogicActiveInNewScene)
         {
