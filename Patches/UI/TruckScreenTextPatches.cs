@@ -1,133 +1,102 @@
 // File: L.A.T.E/Patches/UI/TruckScreenTextPatches.cs
+using System;
+using System.Reflection;
+
 using HarmonyLib;
-using LATE.Core; // For LatePlugin.Log
-using LATE.Managers.GameState; // For GameVersionSupport
-using LATE.Utilities; // For PhotonUtilities
-using Photon.Pun; // For PhotonNetwork
-using LATE.Patches.CoreGame;
-using System.Reflection; // For FieldInfo
 
-namespace LATE.Patches.UI; // File-scoped namespace
+using Photon.Pun;
 
-/// <summary>
-/// Helper class to centralize the early lobby lock logic triggered by TruckScreenText state changes.
-/// </summary>
+using LATE.Core;                 // LatePlugin.Log
+using LATE.Managers.GameState;   // GameVersionSupport
+using LATE.Patches.CoreGame;     // RunManagerPatches
+using LATE.Utilities;            // PhotonUtilities
+
+namespace LATE.Patches.UI;
+
+/*──────────────────────────────────────────────────────────────────────────────*/
+/*  Early-lock helper                                                          */
+/*──────────────────────────────────────────────────────────────────────────────*/
+
 internal static class EarlyLobbyLockHelper
 {
-    /// <summary>
-    /// Attempts to lock the Photon room and Steam lobby.
-    /// This is called by TruckScreenText patches when specific state transitions occur,
-    /// indicating a level change is imminent.
-    /// </summary>
-    /// <param name="reason">A descriptive string for logging the reason for the lock.</param>
+    private const string LogPrefix = "[Early Lock]";
+
+    /// <summary>Locks Photon room & Steam lobby when a level change is imminent.</summary>
     internal static void TryLockLobby(string reason)
     {
-        if (!PhotonUtilities.IsRealMasterClient())
-        {
-            return;
-        }
+        if (!PhotonUtilities.IsRealMasterClient()) return;
 
-        // Set the flag when the game is first truly starting.
         RunManagerPatches.SetInitialPublicListingPhaseComplete(true);
+        LatePlugin.Log.LogInfo($"[L.A.T.E] {LogPrefix} Host about to change level (Trigger: {reason}). Locking lobby.");
 
-        LatePlugin.Log.LogInfo($"[L.A.T.E.] [Early Lock] Host is about to change level (Trigger: {reason}). Locking lobby NOW. Initial public phase marked complete.");
-
-        // Lock Photon Room
-        if (PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null)
+        if (PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom is { IsOpen: true })
         {
-            if (PhotonNetwork.CurrentRoom.IsOpen) // Only log if it was actually open
-            {
-                PhotonNetwork.CurrentRoom.IsOpen = false;
-                LatePlugin.Log.LogDebug("[Early Lock] Photon Room IsOpen set to false.");
-            }
+            PhotonNetwork.CurrentRoom.IsOpen = false;
+            LatePlugin.Log.LogDebug($"{LogPrefix} Photon room IsOpen → FALSE.");
         }
 
-        // Lock Steam Lobby (uses version-aware helper)
         GameVersionSupport.LockSteamLobby();
     }
 }
 
-/// <summary>
-/// Contains Harmony patches for the TruckScreenText class, primarily to implement
-/// an "early lock" of the lobby when certain UI states indicate a level change is imminent.
-/// </summary>
+/*──────────────────────────────────────────────────────────────────────────────*/
+/*  TruckScreenText patches                                                    */
+/*──────────────────────────────────────────────────────────────────────────────*/
+
 [HarmonyPatch]
 internal static class TruckScreenTextPatches
 {
-    // Cache the reflection FieldInfo for efficiency and error checking
-    private static FieldInfo? _tstPlayerChatBoxStateStartField;
+    private const string LogPrefix = "[TruckScreenTextPatches]";
 
-    // Helper method to get/cache the FieldInfo for TruckScreenText.playerChatBoxStateStart
-    private static FieldInfo? GetPlayerChatBoxStateStartField()
-    {
-        if (_tstPlayerChatBoxStateStartField == null)
-        {
-            _tstPlayerChatBoxStateStartField = AccessTools.Field(typeof(TruckScreenText), "playerChatBoxStateStart");
-            if (_tstPlayerChatBoxStateStartField == null)
-            {
-                LatePlugin.Log?.LogError("[TruckScreenTextPatches] [Reflection Error] Failed to find private field 'TruckScreenText.playerChatBoxStateStart'. Early lock patch will not function correctly.");
-            }
-        }
-        return _tstPlayerChatBoxStateStartField;
-    }
+    // Cached FieldInfo for private bool TruckScreenText.playerChatBoxStateStart
+    private static FieldInfo? _playerChatBoxStateStartField;
 
-    // Patch for PlayerChatBoxStateLockedDestroySlackers
-    // This state is entered when the "Destroy Slackers" button is pressed on the truck screen.
+    private static FieldInfo PlayerChatBoxStateStartField =>
+        _playerChatBoxStateStartField ??= AccessTools.Field(typeof(TruckScreenText), "playerChatBoxStateStart");
+
+    /*------------------------------------------------------------------------*/
+    /*  PlayerChatBoxStateLockedDestroySlackers – PREFIX                      */
+    /*------------------------------------------------------------------------*/
+
     [HarmonyPatch(typeof(TruckScreenText), "PlayerChatBoxStateLockedDestroySlackers")]
     [HarmonyPrefix]
-    static bool Prefix_PlayerChatBoxStateLockedDestroySlackers(TruckScreenText __instance)
-    {
-        if (PhotonUtilities.IsRealMasterClient())
-        {
-            FieldInfo? startFlagField = GetPlayerChatBoxStateStartField();
-            if (startFlagField != null)
-            {
-                try
-                {
-                    // Read the value of playerChatBoxStateStart *before* the original method potentially changes it.
-                    bool isStateStarting = (bool)(startFlagField.GetValue(__instance) ?? false);
+    private static bool LockedDestroySlackers_Prefix(TruckScreenText __instance) =>
+        CheckAndEarlyLock(__instance, "DestroySlackers");
 
-                    if (isStateStarting)
-                    {
-                        // This means the original method's 'if (playerChatBoxStateStart)' block is about to execute.
-                        // This is the precise moment we want to lock the lobby for this state transition.
-                        EarlyLobbyLockHelper.TryLockLobby("TruckScreenText.PlayerChatBoxStateLockedDestroySlackers (State Enter)");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    LatePlugin.Log?.LogError($"[TruckScreenTextPatches] [Early Lock Prefix - DestroySlackers] Error accessing playerChatBoxStateStart: {ex}");
-                }
-            }
-        }
-        return true; // Always return true to let the original method execute.
-    }
+    /*------------------------------------------------------------------------*/
+    /*  PlayerChatBoxStateLockedStartingTruck – PREFIX                        */
+    /*------------------------------------------------------------------------*/
 
-    // Patch for PlayerChatBoxStateLockedStartingTruck
-    // This state is entered when the "Start Truck" button is pressed.
     [HarmonyPatch(typeof(TruckScreenText), "PlayerChatBoxStateLockedStartingTruck")]
     [HarmonyPrefix]
-    static bool Prefix_PlayerChatBoxStateLockedStartingTruck(TruckScreenText __instance)
+    private static bool LockedStartingTruck_Prefix(TruckScreenText __instance) =>
+        CheckAndEarlyLock(__instance, "StartingTruck");
+
+    /*------------------------------------------------------------------------*/
+    /*  Shared helper                                                         */
+    /*------------------------------------------------------------------------*/
+
+    private static bool CheckAndEarlyLock(TruckScreenText tst, string ctx)
     {
-        if (PhotonUtilities.IsRealMasterClient())
+        if (!PhotonUtilities.IsRealMasterClient()) return true;
+
+        if (PlayerChatBoxStateStartField == null)
         {
-            FieldInfo? startFlagField = GetPlayerChatBoxStateStartField();
-            if (startFlagField != null)
-            {
-                try
-                {
-                    bool isStateStarting = (bool)(startFlagField.GetValue(__instance) ?? false);
-                    if (isStateStarting)
-                    {
-                        EarlyLobbyLockHelper.TryLockLobby("TruckScreenText.PlayerChatBoxStateLockedStartingTruck (State Enter)");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    LatePlugin.Log?.LogError($"[TruckScreenTextPatches] [Early Lock Prefix - StartingTruck] Error accessing playerChatBoxStateStart: {ex}");
-                }
-            }
+            LatePlugin.Log.LogError($"{LogPrefix} Reflection failed: field 'playerChatBoxStateStart' not found – early lock disabled.");
+            return true;
         }
-        return true; // Always return true.
+
+        try
+        {
+            bool isStateStarting = (bool)(PlayerChatBoxStateStartField.GetValue(tst) ?? false);
+            if (isStateStarting)
+                EarlyLobbyLockHelper.TryLockLobby($"TruckScreenText.{ctx} (State Enter)");
+        }
+        catch (Exception ex)
+        {
+            LatePlugin.Log.LogError($"{LogPrefix} {ctx}: error reading playerChatBoxStateStart → {ex}");
+        }
+
+        return true; // always allow original method to run
     }
 }

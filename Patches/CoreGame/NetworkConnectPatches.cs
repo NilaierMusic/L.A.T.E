@@ -1,58 +1,52 @@
 // File: L.A.T.E/Patches/CoreGame/NetworkConnectPatches.cs
 using HarmonyLib;
+
 using Photon.Pun;
-using Photon.Realtime; // For ClientState
-using LATE.Core; // For LatePlugin.Log
+using Photon.Realtime;     // ClientState
 
-namespace LATE.Patches.CoreGame; // File-scoped namespace
+using LATE.Core;           // LatePlugin.Log
 
-/// <summary>
-/// Contains Harmony patches for the NetworkConnect class.
-/// </summary>
+namespace LATE.Patches.CoreGame;
+
+/// <summary>Harmony patches for <see cref="NetworkConnect"/>.</summary>
 [HarmonyPatch]
 internal static class NetworkConnectPatches
 {
+    private const string LogPrefix = "[NetworkConnectPatches]";
+
+    /* --------------------------------------------------------------------- */
+    /*  Prefix on NetworkConnect.Start                                       */
+    /* --------------------------------------------------------------------- */
+
     [HarmonyPatch(typeof(NetworkConnect), "Start")]
     [HarmonyPrefix]
-    static void ForceAutoSyncSceneStartPrefix()
+    private static void ForceAutoSyncScene_Start_Prefix()
     {
-        // Only force this on clients joining, not the initial host setup or singleplayer.
-        // Check if not disconnected/peercreated AND in multiplayer mode.
-        if (
-            GameManager.instance != null
-            && PhotonNetwork.NetworkClientState != ClientState.Disconnected
-            && PhotonNetwork.NetworkClientState != ClientState.PeerCreated
-            && GameManager.instance.gameMode != 0 // 0 is typically singleplayer/offline
-        )
+        // Skip if initial host setup or single-player
+        if (GameManager.instance == null ||
+            PhotonNetwork.NetworkClientState is ClientState.Disconnected or ClientState.PeerCreated ||
+            GameManager.instance.gameMode == 0)
         {
-            if (!PhotonNetwork.AutomaticallySyncScene)
-            {
-                LatePlugin.Log.LogInfo(
-                    "[L.A.T.E] Forcing PhotonNetwork.AutomaticallySyncScene = true in NetworkConnect.Start (Prefix)"
-                );
-                PhotonNetwork.AutomaticallySyncScene = true;
-            }
-            else
-            {
-                LatePlugin.Log.LogDebug(
-                    "[L.A.T.E] PhotonNetwork.AutomaticallySyncScene is already true in NetworkConnect.Start (Prefix)."
-                );
-            }
+            LatePlugin.Log.LogDebug($"{LogPrefix} Skipping AutomaticallySyncScene force – initial host/SP setup.");
+            return;
         }
-        else
+
+        if (PhotonNetwork.AutomaticallySyncScene)
         {
-            LatePlugin.Log.LogDebug(
-                "[L.A.T.E] Skipping AutomaticallySyncScene force in NetworkConnect.Start (Prefix) - Likely initial host/SP setup."
-            );
+            LatePlugin.Log.LogDebug($"{LogPrefix} AutomaticallySyncScene already TRUE.");
+            return;
         }
+
+        PhotonNetwork.AutomaticallySyncScene = true;
+        LatePlugin.Log.LogInfo($"{LogPrefix} Forced PhotonNetwork.AutomaticallySyncScene = TRUE.");
     }
+
+    /* --------------------------------------------------------------------- */
+    /*  Postfix on NetworkConnect.OnJoinedRoom                               */
+    /* --------------------------------------------------------------------- */
 
     [HarmonyPatch(typeof(NetworkConnect), nameof(NetworkConnect.OnJoinedRoom))]
     [HarmonyPostfix]
-    static void LogAutoSyncPostfix()
-    {
-        LatePlugin.Log.LogInfo(
-            $"[L.A.T.E] NetworkConnect.OnJoinedRoom Postfix: AutomaticallySyncScene is now {PhotonNetwork.AutomaticallySyncScene}"
-        );
-    }
+    private static void LogAutoSync_Postfix() =>
+        LatePlugin.Log.LogInfo($"{LogPrefix} OnJoinedRoom: AutomaticallySyncScene = {PhotonNetwork.AutomaticallySyncScene}");
 }

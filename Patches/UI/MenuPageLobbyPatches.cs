@@ -1,26 +1,38 @@
 ﻿// File: L.A.T.E/Patches/UI/MenuPageMainPatches.cs
 using HarmonyLib;
-using LATE.Core;
-using LATE.Patches.CoreGame; // For RunManagerPatches
+
+using LATE.Core;                 // LatePlugin.Log
+using LATE.Patches.CoreGame;     // RunManagerPatches
 
 namespace LATE.Patches.UI;
 
+/// <summary>Harmony patches for <see cref="MenuPageMain"/> buttons.</summary>
 [HarmonyPatch]
 internal static class MenuPageMainPatches
 {
+    private const string LogPrefix = "[MenuPageMainPatches]";
+
+    /*───────────────────────────────────────────────────────────────────────────*/
+    /*  ButtonEventHostGame – PREFIX                                            */
+    /*───────────────────────────────────────────────────────────────────────────*/
+
     [HarmonyPatch(typeof(MenuPageMain), nameof(MenuPageMain.ButtonEventHostGame))]
     [HarmonyPrefix]
-    static void MenuPageMain_ButtonEventHostGame_Prefix()
+    private static void ButtonEventHostGame_Prefix()
     {
         RunManagerPatches.SetInitialPublicListingPhaseComplete(false);
-        LatePlugin.Log.LogInfo("[MenuPageMainPatches] Resetting initial public listing phase for new hosting session (HostGame).");
+        LatePlugin.Log.LogInfo($"{LogPrefix} Reset initial public-listing phase (HostGame).");
     }
+
+    /*───────────────────────────────────────────────────────────────────────────*/
+    /*  ButtonEventPlayRandom – PREFIX                                          */
+    /*───────────────────────────────────────────────────────────────────────────*/
 
     [HarmonyPatch(typeof(MenuPageMain), nameof(MenuPageMain.ButtonEventPlayRandom))]
     [HarmonyPrefix]
-    static void MenuPageMain_ButtonEventPlayRandom_Prefix()
+    private static void ButtonEventPlayRandom_Prefix()
     {
         RunManagerPatches.SetInitialPublicListingPhaseComplete(false);
-        LatePlugin.Log.LogInfo("[MenuPageMainPatches] Resetting initial public listing phase for new hosting session (PlayRandom).");
+        LatePlugin.Log.LogInfo($"{LogPrefix} Reset initial public-listing phase (PlayRandom).");
     }
 }

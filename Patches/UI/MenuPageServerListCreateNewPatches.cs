@@ -1,19 +1,27 @@
 ﻿// File: L.A.T.E/Patches/UI/MenuPageServerListCreateNewPatches.cs
 using HarmonyLib;
-using LATE.Core;
-using LATE.Patches.CoreGame; // For RunManagerPatches
+
+using LATE.Core;                 // LatePlugin.Log
+using LATE.Patches.CoreGame;     // RunManagerPatches
 
 namespace LATE.Patches.UI;
 
+/// <summary>Harmony patch for “Create New” in the server-list menu.</summary>
 [HarmonyPatch]
 internal static class MenuPageServerListCreateNewPatches
 {
+    private const string LogPrefix = "[MenuPageServerListCreateNewPatches]";
+
+    /*───────────────────────────────────────────────────────────────────────────*/
+    /*  ButtonConfirm – PREFIX                                                  */
+    /*───────────────────────────────────────────────────────────────────────────*/
+
     [HarmonyPatch(typeof(MenuPageServerListCreateNew), nameof(MenuPageServerListCreateNew.ButtonConfirm))]
     [HarmonyPrefix]
-    static void MenuPageServerListCreateNew_ButtonConfirm_Prefix()
+    private static void ButtonConfirm_Prefix()
     {
-        // This button leads to creating a new public game.
+        // Starting a fresh public game → reset listing-phase flag
         RunManagerPatches.SetInitialPublicListingPhaseComplete(false);
-        LatePlugin.Log.LogInfo("[MenuPageServerListCreateNewPatches] Resetting initial public listing phase for new custom public game creation.");
+        LatePlugin.Log.LogInfo($"{LogPrefix} Reset initial public-listing phase for new custom public game.");
     }
 }

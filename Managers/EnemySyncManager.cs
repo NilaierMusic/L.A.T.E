@@ -1,417 +1,527 @@
 ﻿// File: L.A.T.E/Managers/EnemySyncManager.cs
-using HarmonyLib; // For AccessTools in specific enemy sections
+using HarmonyLib; // For AccessTools if any enemy-specific field reflection remains (prefer ReflectionCache)
+using LATE.Core;
+using LATE.Utilities;
 using Photon.Pun;
 using Photon.Realtime;
-using System;
-using System.Reflection;
+using System.Reflection; // For FieldInfo if used directly (prefer ReflectionCache)
 using UnityEngine;
-using Object = UnityEngine.Object;
-using LATE.Core;
-using LATE.Utilities; // For ReflectionCache, PhotonUtilities, GameUtilities
+using Object = UnityEngine.Object; // Alias for UnityEngine.Object
 
 namespace LATE.Managers;
 
 /// <summary>
-/// Handles enemy synchronization, including notifying enemies of players joining/leaving
-/// and syncing detailed enemy states to late-joining players.
+/// Handles enemy synchronization for late-joining players. This includes notifying active enemies
+/// of players joining or leaving the game, and performing a detailed state synchronization
+/// for each enemy type to ensure late joiners see enemies in their correct states.
 /// </summary>
 internal static class EnemySyncManager
 {
-    #region ─── Common helpers ──────────────────────────────────────────────
-    private static bool IsMaster() => PhotonUtilities.IsRealMasterClient(); // Corrected: Use PhotonUtilities
+    private static readonly BepInEx.Logging.ManualLogSource Log = LatePlugin.Log;
 
-    private static void ForEachEnemy(Action<Enemy, PhotonView?> action)
+    #region Helper Methods
+    /// <summary>
+    /// Checks if the local client is the authoritative Master Client.
+    /// </summary>
+    /// <returns>True if the local client is the Master Client; otherwise, false.</returns>
+    private static bool IsMasterClient() => PhotonUtilities.IsRealMasterClient();
+
+    /// <summary>
+    /// Iterates over all active <see cref="Enemy"/> instances in the scene and executes a given action.
+    /// Active enemies are those found by <see cref="Object.FindObjectsOfType{T}()"/>.
+    /// </summary>
+    /// <param name="action">The action to perform for each enemy and its associated PhotonView.</param>
+    private static void ForEachActiveEnemy(Action<Enemy, PhotonView> action)
     {
         Enemy[] enemies = Object.FindObjectsOfType<Enemy>();
-        LatePlugin.Log.LogDebug($"[EnemySyncManager] ForEachEnemy found {enemies.Length} active enemies.");
+        if (enemies == null || enemies.Length == 0)
+        {
+            Log.LogDebug("[EnemySyncManager] ForEachActiveEnemy: No active enemies found.");
+            return;
+        }
+
+        Log.LogDebug($"[EnemySyncManager] ForEachActiveEnemy: Found {enemies.Length} active enemies.");
 
         foreach (Enemy enemy in enemies)
         {
             if (enemy == null || enemy.gameObject == null) continue;
 
             PhotonView? enemyPv = null;
-            try
+            if (ReflectionCache.Enemy_PhotonViewField != null)
             {
-                // Corrected: Use ReflectionCache
-                if (ReflectionCache.Enemy_PhotonViewField != null)
+                try
                 {
                     enemyPv = ReflectionCache.Enemy_PhotonViewField.GetValue(enemy) as PhotonView;
                 }
+                catch (Exception ex)
+                {
+                    Log.LogWarning($"[EnemySyncManager] ForEachActiveEnemy: Error reflecting Enemy.PhotonView for '{enemy.gameObject.name}': {ex.Message}");
+                }
             }
-            catch (Exception ex)
+
+            if (enemyPv == null) // Fallback if reflection failed or field is null
             {
-                LatePlugin.Log.LogWarning($"[EnemySyncManager] Error reflecting Enemy.photonView for '{enemy.gameObject.name}': {ex.Message}");
+                enemyPv = enemy.GetComponent<PhotonView>();
             }
 
             if (enemyPv == null)
             {
-                enemyPv = enemy.GetComponent<PhotonView>(); // Fallback
-                if (enemyPv == null)
-                {
-                    LatePlugin.Log.LogWarning($"[EnemySyncManager] Could not get PhotonView for active enemy '{enemy.gameObject.name}'. Skipping action.");
-                    continue;
-                }
+                Log.LogWarning($"[EnemySyncManager] ForEachActiveEnemy: Could not get PhotonView for active enemy '{enemy.gameObject.name}'. Skipping action.");
+                continue;
             }
-            try { action(enemy, enemyPv); }
-            catch (Exception ex) { LatePlugin.Log.LogError($"[EnemySyncManager] Enemy action failed on '{enemy.gameObject?.name ?? "NULL"}' (ViewID: {enemyPv?.ViewID ?? 0}): {ex}"); }
+
+            try
+            {
+                action(enemy, enemyPv);
+            }
+            catch (Exception ex)
+            {
+                Log.LogError($"[EnemySyncManager] ForEachActiveEnemy: Action failed on '{enemy.gameObject?.name ?? "NULL_GAMEOBJECT"}' (ViewID: {enemyPv.ViewID}): {ex}");
+            }
         }
     }
     #endregion
 
-    #region ─── Notify Enemies of New Player ────────────────────────────────
+    #region Player Join/Leave Notifications
+    /// <summary>
+    /// Notifies all active enemies that a new player has joined the game by calling the enemy's <c>PlayerAdded</c> method.
+    /// This method should only be called by the MasterClient.
+    /// </summary>
+    /// <param name="newPlayer">The <see cref="Player"/> who joined.</param>
+    /// <param name="newPlayerAvatar">The <see cref="PlayerAvatar"/> instance for the new player.</param>
     public static void NotifyEnemiesOfNewPlayer(Player newPlayer, PlayerAvatar newPlayerAvatar)
     {
-        if (newPlayer == null) return;
-        if (!IsMaster()) return;
-        if (newPlayerAvatar == null) return;
+        if (newPlayer == null)
+        {
+            Log.LogWarning("[EnemySyncManager] NotifyEnemiesOfNewPlayer: newPlayer is null. Aborting.");
+            return;
+        }
+        if (!IsMasterClient())
+        {
+            Log.LogDebug("[EnemySyncManager] NotifyEnemiesOfNewPlayer: Not MasterClient. Skipping.");
+            return;
+        }
+        if (newPlayerAvatar == null)
+        {
+            Log.LogWarning($"[EnemySyncManager] NotifyEnemiesOfNewPlayer: newPlayerAvatar for {newPlayer.NickName} is null. Aborting.");
+            return;
+        }
 
-        PhotonView? avatarPv = PhotonUtilities.GetPhotonView(newPlayerAvatar); // Corrected: Use PhotonUtilities
-        if (avatarPv == null) return;
+        PhotonView? avatarPv = PhotonUtilities.GetPhotonView(newPlayerAvatar);
+        if (avatarPv == null)
+        {
+            Log.LogWarning($"[EnemySyncManager] NotifyEnemiesOfNewPlayer: PhotonView for {newPlayer.NickName}'s avatar is null. Aborting.");
+            return;
+        }
 
         int avatarViewId = avatarPv.ViewID;
-        LatePlugin.Log.LogInfo($"[EnemySyncManager] Notifying ACTIVE enemies about new player {newPlayer.NickName} (ViewID {avatarViewId}).");
-        int updated = 0;
-        ForEachEnemy((enemy, enemyPv) =>
+        string newPlayerNickname = newPlayer.NickName ?? $"ActorNr {newPlayer.ActorNumber}";
+        Log.LogInfo($"[EnemySyncManager] Notifying active enemies about new player {newPlayerNickname} (AvatarViewID: {avatarViewId}).");
+        int updatedCount = 0;
+
+        ForEachActiveEnemy((enemy, enemyPv) =>
         {
             try
             {
                 enemy.PlayerAdded(avatarViewId);
-                updated++;
+                updatedCount++;
             }
-            catch (Exception ex) { LatePlugin.Log.LogError($"[EnemySyncManager] Error calling PlayerAdded on '{enemy.gameObject.name}': {ex.Message}"); }
+            catch (Exception ex)
+            {
+                Log.LogError($"[EnemySyncManager] Error calling PlayerAdded on '{enemy.gameObject?.name ?? "NULL_GAMEOBJECT"}' for player {newPlayerNickname}: {ex.Message}");
+            }
         });
-        LatePlugin.Log.LogInfo($"[EnemySyncManager] Finished notifying {updated} active enemies about {newPlayer.NickName}.");
-    }
-    #endregion
 
-    #region ─── Notify Enemies of Leaving Player ────────────────────────────
+        Log.LogInfo($"[EnemySyncManager] Finished notifying {updatedCount} active enemies about {newPlayerNickname} joining.");
+    }
+
+    /// <summary>
+    /// Notifies all active enemies that a player has left the game by calling the enemy's <c>PlayerRemoved</c> method.
+    /// This method should only be called by the MasterClient.
+    /// </summary>
+    /// <param name="leavingPlayer">The <see cref="Player"/> who left.</param>
     public static void NotifyEnemiesOfLeavingPlayer(Player leavingPlayer)
     {
-        if (leavingPlayer == null) return;
-        if (!IsMaster()) return;
-
-        PlayerAvatar? avatar = GameUtilities.FindPlayerAvatar(leavingPlayer);
-        PhotonView? avatarPv = null;
-        if (avatar != null)
+        if (leavingPlayer == null)
         {
-            avatarPv = PhotonUtilities.GetPhotonView(avatar); // Corrected: Use PhotonUtilities
+            Log.LogWarning("[EnemySyncManager] NotifyEnemiesOfLeavingPlayer: leavingPlayer is null. Aborting.");
+            return;
         }
-        if (avatarPv == null) return;
-
-        int avatarViewId = avatarPv.ViewID;
-        LatePlugin.Log.LogInfo($"[EnemySyncManager] Notifying ACTIVE enemies that {leavingPlayer.NickName} (ViewID {avatarViewId}) left.");
-        int updated = 0;
-        ForEachEnemy((enemy, enemyPv) =>
+        if (!IsMasterClient())
         {
-            // Corrected: Use GameUtilities (which uses ReflectionCache)
-            GameUtilities.TryGetEnemyTargetViewIdReflected(enemy, out var currentTargetId);
-            bool wasTarget = currentTargetId == avatarViewId;
-            try
-            {
-                enemy.PlayerRemoved(avatarViewId);
-                updated++;
-            }
-            catch (Exception ex) { LatePlugin.Log.LogError($"[EnemySyncManager] Error calling PlayerRemoved on '{enemy.gameObject.name}': {ex.Message}"); }
-        });
-        LatePlugin.Log.LogInfo($"[EnemySyncManager] Finished notifying {updated} active enemies about {leavingPlayer.NickName} leaving.");
-    }
-    #endregion
-
-    #region ─── Sync Enemy State for Late Joiner (REVISED + REFLECTION) ─────
-    public static void SyncAllEnemyStatesForPlayer(Player targetPlayer)
-    {
-        if (!IsMaster() || targetPlayer == null) return;
-
-        // Corrected: Use ReflectionCache
-        if (ReflectionCache.Enemy_EnemyParentField == null || ReflectionCache.EnemyParent_SpawnedField == null)
-        {
-            LatePlugin.Log.LogError("[EnemySyncManager] CRITICAL REFLECTION FAILURE: EnemyParent or Spawned field not found in ReflectionCache. Aborting enemy sync.");
+            Log.LogDebug("[EnemySyncManager] NotifyEnemiesOfLeavingPlayer: Not MasterClient. Skipping.");
             return;
         }
 
-        string nick = targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
-        LatePlugin.Log.LogInfo($"[EnemySyncManager] === Starting FULL enemy state sync for {nick} ===");
-        int processedCount = 0, spawnRpcSentCount = 0, despawnRpcSentCount = 0, specificStateSyncedCount = 0, freezeSyncedCount = 0, otherStateSyncedCount = 0;
-        Enemy[] allEnemies = Object.FindObjectsOfType<Enemy>(true);
+        PlayerAvatar? avatar = GameUtilities.FindPlayerAvatar(leavingPlayer);
+        if (avatar == null)
+        {
+            Log.LogWarning($"[EnemySyncManager] NotifyEnemiesOfLeavingPlayer: Could not find PlayerAvatar for {leavingPlayer.NickName}. Aborting.");
+            return;
+        }
 
-        foreach (Enemy enemy in allEnemies)
+        PhotonView? avatarPv = PhotonUtilities.GetPhotonView(avatar);
+        if (avatarPv == null)
+        {
+            Log.LogWarning($"[EnemySyncManager] NotifyEnemiesOfLeavingPlayer: PhotonView for {leavingPlayer.NickName}'s avatar is null. Aborting.");
+            return;
+        }
+
+        int avatarViewId = avatarPv.ViewID;
+        string leavingPlayerNickname = leavingPlayer.NickName ?? $"ActorNr {leavingPlayer.ActorNumber}";
+        Log.LogInfo($"[EnemySyncManager] Notifying active enemies that {leavingPlayerNickname} (AvatarViewID: {avatarViewId}) left.");
+        int updatedCount = 0;
+
+        ForEachActiveEnemy((enemy, enemyPv) =>
+        {
+            try
+            {
+                enemy.PlayerRemoved(avatarViewId);
+                updatedCount++;
+            }
+            catch (Exception ex)
+            {
+                Log.LogError($"[EnemySyncManager] Error calling PlayerRemoved on '{enemy.gameObject?.name ?? "NULL_GAMEOBJECT"}' for player {leavingPlayerNickname}: {ex.Message}");
+            }
+        });
+        Log.LogInfo($"[EnemySyncManager] Finished notifying {updatedCount} active enemies about {leavingPlayerNickname} leaving.");
+    }
+    #endregion
+
+    #region Full Enemy State Synchronization for Late Joiner
+    /// <summary>
+    /// Synchronizes the state of all enemies (including inactive ones that might become active)
+    /// to a late-joining player. This is a comprehensive sync covering spawn state and
+    /// type-specific properties. This method should only be called by the MasterClient.
+    /// </summary>
+    /// <param name="targetPlayer">The late-joining <see cref="Player"/> to synchronize states to.</param>
+    public static void SyncAllEnemyStatesForPlayer(Player targetPlayer)
+    {
+        if (targetPlayer == null)
+        {
+            Log.LogError("[EnemySyncManager] SyncAllEnemyStatesForPlayer: targetPlayer is null. Aborting.");
+            return;
+        }
+        if (!IsMasterClient())
+        {
+            Log.LogDebug("[EnemySyncManager] SyncAllEnemyStatesForPlayer: Not MasterClient. Skipping.");
+            return;
+        }
+
+        if (ReflectionCache.Enemy_EnemyParentField == null || ReflectionCache.EnemyParent_SpawnedField == null)
+        {
+            Log.LogError("[EnemySyncManager] SyncAllEnemyStatesForPlayer: Critical reflection fields (Enemy_EnemyParentField or EnemyParent_SpawnedField) missing from ReflectionCache. Aborting.");
+            return;
+        }
+
+        string targetNickname = targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
+        Log.LogInfo($"[EnemySyncManager] === Starting FULL enemy state sync for {targetNickname} ===");
+
+        int processedCount = 0, spawnRpcSentCount = 0, despawnRpcSentCount = 0;
+        int specificStateSyncedCount = 0, freezeSyncedCount = 0, otherStateSyncedCount = 0;
+
+        Enemy[] allEnemiesInScene = Object.FindObjectsOfType<Enemy>(true); // Include inactive enemies
+
+        foreach (Enemy enemy in allEnemiesInScene)
         {
             processedCount++;
             if (enemy == null || enemy.gameObject == null) continue;
+
             string enemyName = enemy.gameObject.name;
             EnemyParent? enemyParent = null;
-            PhotonView? parentPv = null;
+            PhotonView? parentPhotonView = null;
 
+            // Get EnemyParent and its PhotonView
             try
             {
-                // Corrected: Use ReflectionCache
                 enemyParent = ReflectionCache.Enemy_EnemyParentField.GetValue(enemy) as EnemyParent;
                 if (enemyParent == null) enemyParent = enemy.GetComponentInParent<EnemyParent>(); // Fallback
-                if (enemyParent == null) continue;
-                parentPv = enemyParent.GetComponent<PhotonView>(); // EnemyParent should have a PV
-                if (parentPv == null) continue;
-            }
-            catch (Exception ex) { LatePlugin.Log.LogError($"[EnemySyncManager] Error getting EnemyParent for '{enemyName}': {ex}"); continue; }
 
-            PhotonView? enemyPv = null;
-            try
-            {
-                // Corrected: Use ReflectionCache
-                if (ReflectionCache.Enemy_PhotonViewField != null)
-                    enemyPv = ReflectionCache.Enemy_PhotonViewField.GetValue(enemy) as PhotonView;
-            }
-            catch { /* Logged by ReflectionCache if critical */ }
-            if (enemyPv == null) enemyPv = enemy.GetComponent<PhotonView>(); // Fallback
-            // if enemyPv still null, detailed sync might fail, but Spawn/Despawn RPC will proceed.
-
-            try
-            {
-                bool hostIsSpawned = false;
-                try
+                if (enemyParent == null)
                 {
-                    // Corrected: Use ReflectionCache
-                    object? spawnedValue = ReflectionCache.EnemyParent_SpawnedField.GetValue(enemyParent);
-                    if (spawnedValue is bool val) hostIsSpawned = val;
+                    Log.LogDebug($"[EnemySyncManager] Enemy '{enemyName}' has no EnemyParent component. Skipping basic spawn sync for it.");
+                    continue;
                 }
-                catch { /* Error logged by ReflectionCache */ }
+                parentPhotonView = enemyParent.GetComponent<PhotonView>();
+                if (parentPhotonView == null)
+                {
+                    Log.LogWarning($"[EnemySyncManager] EnemyParent for '{enemyName}' is missing a PhotonView. Skipping basic spawn sync.");
+                    continue;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.LogError($"[EnemySyncManager] Error obtaining EnemyParent or its PhotonView for '{enemyName}': {ex}");
+                continue;
+            }
+
+            // Get Enemy's own PhotonView (for detailed state sync)
+            PhotonView? enemyPhotonView = null;
+            if (ReflectionCache.Enemy_PhotonViewField != null)
+            {
+                try { enemyPhotonView = ReflectionCache.Enemy_PhotonViewField.GetValue(enemy) as PhotonView; }
+                catch (Exception ex) { Log.LogWarning($"[EnemySyncManager] Error reflecting Enemy.PhotonView for '{enemyName}': {ex.Message}"); }
+            }
+            if (enemyPhotonView == null)
+            {
+                enemyPhotonView = enemy.GetComponent<PhotonView>();
+            }
+
+            // Sync basic spawn state (SpawnRPC or DespawnRPC)
+            try
+            {
+                bool hostIsSpawned = ReflectionCache.EnemyParent_SpawnedField.GetValue(enemyParent) as bool? ?? false;
 
                 if (hostIsSpawned)
                 {
-                    parentPv.RPC("SpawnRPC", targetPlayer); spawnRpcSentCount++;
-                    if (enemyPv == null) continue; // Cannot do detailed sync without enemy's PV
+                    parentPhotonView.RPC("SpawnRPC", targetPlayer);
+                    spawnRpcSentCount++;
 
-                    // Corrected: Use GameUtilities (which uses ReflectionCache)
-                    if (GameUtilities.TryGetEnemyTargetViewIdReflected(enemy, out int hostTargetViewId) && hostTargetViewId > 0) { /* Logging */ }
-
-                    bool specificStateSynced = false; // Per enemy
-
-                    // EnemyAnimal
-                    EnemyAnimal animal = enemy.GetComponent<EnemyAnimal>();
-                    if (animal != null) { enemyPv.RPC("UpdateStateRPC", targetPlayer, animal.currentState); specificStateSyncedCount++; specificStateSynced = true; }
-
-                    // EnemyBang
-                    EnemyBang bang = enemy.GetComponent<EnemyBang>();
-                    if (bang != null)
+                    if (enemyPhotonView != null)
                     {
-                        enemyPv.RPC("UpdateStateRPC", targetPlayer, bang.currentState);
-                        FieldInfo? fuseActive = AccessTools.Field(typeof(EnemyBang), "fuseActive"); // These are very specific, local reflection okay
-                        FieldInfo? fuseLerp = AccessTools.Field(typeof(EnemyBang), "fuseLerp");
-                        if (fuseActive != null && fuseLerp != null)
+                        SyncSpecificEnemyTypeState(enemy, enemyPhotonView, targetPlayer, ref specificStateSyncedCount, ref otherStateSyncedCount);
+                        if (enemy.FreezeTimer > 0f)
                         {
-                            enemyPv.RPC("FuseRPC", targetPlayer, (bool)fuseActive.GetValue(bang), (float)fuseLerp.GetValue(bang));
-                            otherStateSyncedCount++;
+                            enemyPhotonView.RPC("FreezeRPC", targetPlayer, enemy.FreezeTimer);
+                            freezeSyncedCount++;
                         }
-                        specificStateSyncedCount++; specificStateSynced = true;
                     }
-
-                    // EnemyBeamer
-                    EnemyBeamer beamer = enemy.GetComponent<EnemyBeamer>();
-                    if (beamer != null)
+                    else
                     {
-                        enemyPv.RPC("UpdateStateRPC", targetPlayer, beamer.currentState);
-                        FieldInfo? moveFast = AccessTools.Field(typeof(EnemyBeamer), "moveFast");
-                        if (moveFast != null) { enemyPv.RPC("MoveFastRPC", targetPlayer, (bool)moveFast.GetValue(beamer)); otherStateSyncedCount++; }
-                        // Corrected: Use GameUtilities & ReflectionCache for target field
-                        PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(beamer, ReflectionCache.EnemyBeamer_PlayerTargetField, "EnemyBeamer");
-                        if (target?.photonView != null) { enemyPv.RPC("UpdatePlayerTargetRPC", targetPlayer, target.photonView.ViewID); otherStateSyncedCount++; }
-                        specificStateSyncedCount++; specificStateSynced = true;
+                        Log.LogDebug($"[EnemySyncManager] Enemy '{enemyName}' (parent ViewID: {parentPhotonView.ViewID}) is spawned, but its own PhotonView is missing. Skipping detailed state sync.");
                     }
-
-                    // EnemyBowtie
-                    EnemyBowtie bowtie = enemy.GetComponent<EnemyBowtie>();
-                    if (bowtie != null)
-                    {
-                        enemyPv.RPC("UpdateStateRPC", targetPlayer, bowtie.currentState);
-                        PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(bowtie, AccessTools.Field(typeof(EnemyBowtie), "playerTarget"), "EnemyBowtie");
-                        if (target?.photonView != null) { enemyPv.RPC("NoticeRPC", targetPlayer, target.photonView.ViewID); otherStateSyncedCount++; }
-                        specificStateSyncedCount++; specificStateSynced = true;
-                    }
-
-                    // EnemyCeilingEye
-                    EnemyCeilingEye ceilingEye = enemy.GetComponent<EnemyCeilingEye>();
-                    if (ceilingEye != null)
-                    {
-                        enemyPv.RPC("UpdateStateRPC", targetPlayer, ceilingEye.currentState);
-                        // Corrected: Use GameUtilities & ReflectionCache
-                        PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(ceilingEye, ReflectionCache.EnemyCeilingEye_TargetPlayerField, "EnemyCeilingEye");
-                        if (target?.photonView != null) { enemyPv.RPC("TargetPlayerRPC", targetPlayer, target.photonView.ViewID); otherStateSyncedCount++; }
-                        specificStateSyncedCount++; specificStateSynced = true;
-                    }
-
-                    // EnemyDuck
-                    EnemyDuck duck = enemy.GetComponent<EnemyDuck>();
-                    if (duck != null)
-                    {
-                        enemyPv.RPC("UpdateStateRPC", targetPlayer, duck.currentState);
-                        PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(duck, AccessTools.Field(typeof(EnemyDuck), "playerTarget"), "EnemyDuck");
-                        if (target?.photonView != null) { enemyPv.RPC("UpdatePlayerTargetRPC", targetPlayer, target.photonView.ViewID); otherStateSyncedCount++; }
-                        specificStateSyncedCount++; specificStateSynced = true;
-                    }
-
-                    // EnemyFloater
-                    EnemyFloater floater = enemy.GetComponent<EnemyFloater>();
-                    if (floater != null)
-                    {
-                        enemyPv.RPC("UpdateStateRPC", targetPlayer, floater.currentState);
-                        // Corrected: Use GameUtilities & ReflectionCache
-                        PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(floater, ReflectionCache.EnemyFloater_TargetPlayerField, "EnemyFloater");
-                        if (target?.photonView != null)
-                        {
-                            enemyPv.RPC("TargetPlayerRPC", targetPlayer, target.photonView.ViewID); otherStateSyncedCount++;
-                            if (floater.currentState != EnemyFloater.State.Attack && floater.currentState != EnemyFloater.State.ChargeAttack && floater.currentState != EnemyFloater.State.DelayAttack)
-                            {
-                                enemyPv.RPC("NoticeRPC", targetPlayer, target.photonView.ViewID); otherStateSyncedCount++;
-                            }
-                        }
-                        specificStateSyncedCount++; specificStateSynced = true;
-                    }
-
-                    // EnemyGnome
-                    EnemyGnome gnome = enemy.GetComponent<EnemyGnome>();
-                    if (gnome != null) { enemyPv.RPC("UpdateStateRPC", targetPlayer, gnome.currentState); specificStateSyncedCount++; specificStateSynced = true; }
-
-                    // EnemyHidden
-                    EnemyHidden hidden = enemy.GetComponent<EnemyHidden>();
-                    if (hidden != null)
-                    {
-                        enemyPv.RPC("UpdateStateRPC", targetPlayer, hidden.currentState);
-                        PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(hidden, AccessTools.Field(typeof(EnemyHidden), "playerTarget"), "EnemyHidden");
-                        if (target?.photonView != null) { enemyPv.RPC("UpdatePlayerTargetRPC", targetPlayer, target.photonView.ViewID); otherStateSyncedCount++; }
-                        specificStateSyncedCount++; specificStateSynced = true;
-                    }
-
-                    // EnemyHunter
-                    EnemyHunter hunter = enemy.GetComponent<EnemyHunter>();
-                    if (hunter != null)
-                    {
-                        enemyPv.RPC("UpdateStateRPC", targetPlayer, hunter.currentState);
-                        FieldInfo? invPoint = AccessTools.Field(typeof(EnemyHunter), "investigatePoint");
-                        if (invPoint != null && (hunter.currentState == EnemyHunter.State.Investigate || hunter.currentState == EnemyHunter.State.Aim))
-                        {
-                            enemyPv.RPC("UpdateInvestigationPoint", targetPlayer, (Vector3)invPoint.GetValue(hunter)); otherStateSyncedCount++;
-                        }
-                        FieldInfo? moveFast = AccessTools.Field(typeof(EnemyHunter), "moveFast");
-                        if (moveFast != null) { enemyPv.RPC("MoveFastRPC", targetPlayer, (bool)moveFast.GetValue(hunter)); otherStateSyncedCount++; }
-                        specificStateSyncedCount++; specificStateSynced = true;
-                    }
-
-                    // EnemyRobe
-                    EnemyRobe robe = enemy.GetComponent<EnemyRobe>();
-                    if (robe != null)
-                    {
-                        enemyPv.RPC("UpdateStateRPC", targetPlayer, robe.currentState);
-                        // Corrected: Use GameUtilities & ReflectionCache
-                        PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(robe, ReflectionCache.EnemyRobe_TargetPlayerField, "EnemyRobe");
-                        if (target?.photonView != null) { enemyPv.RPC("TargetPlayerRPC", targetPlayer, target.photonView.ViewID); otherStateSyncedCount++; }
-                        FieldInfo? isOnScreen = AccessTools.Field(typeof(EnemyRobe), "isOnScreen");
-                        if (isOnScreen != null) { enemyPv.RPC("UpdateOnScreenRPC", targetPlayer, (bool)isOnScreen.GetValue(robe)); otherStateSyncedCount++; }
-                        specificStateSyncedCount++; specificStateSynced = true;
-                    }
-
-                    // EnemyRunner
-                    EnemyRunner runner = enemy.GetComponent<EnemyRunner>();
-                    if (runner != null)
-                    {
-                        enemyPv.RPC("UpdateStateRPC", targetPlayer, runner.currentState);
-                        // Corrected: Use GameUtilities & ReflectionCache
-                        PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(runner, ReflectionCache.EnemyRunner_TargetPlayerField, "EnemyRunner");
-                        if (target?.photonView != null) { enemyPv.RPC("UpdatePlayerTargetRPC", targetPlayer, target.photonView.ViewID); otherStateSyncedCount++; }
-                        specificStateSyncedCount++; specificStateSynced = true;
-                    }
-
-                    // EnemySlowMouth
-                    EnemySlowMouth mouth = enemy.GetComponent<EnemySlowMouth>();
-                    if (mouth != null)
-                    {
-                        enemyPv.RPC("UpdateStateRPC", targetPlayer, mouth.currentState);
-                        PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(mouth, AccessTools.Field(typeof(EnemySlowMouth), "playerTarget"), "EnemySlowMouth");
-                        if (target?.photonView != null) { enemyPv.RPC("UpdatePlayerTargetRPC", targetPlayer, target.photonView.ViewID); otherStateSyncedCount++; }
-                        specificStateSyncedCount++; specificStateSynced = true;
-                    }
-
-                    // EnemySlowWalker
-                    EnemySlowWalker walker = enemy.GetComponent<EnemySlowWalker>();
-                    if (walker != null)
-                    {
-                        enemyPv.RPC("UpdateStateRPC", targetPlayer, walker.currentState);
-                        // Corrected: Use GameUtilities & ReflectionCache
-                        PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(walker, ReflectionCache.EnemySlowWalker_TargetPlayerField, "EnemySlowWalker");
-                        if (target?.photonView != null)
-                        {
-                            enemyPv.RPC("TargetPlayerRPC", targetPlayer, target.photonView.ViewID); otherStateSyncedCount++;
-                            if (walker.currentState == EnemySlowWalker.State.Notice) { enemyPv.RPC("NoticeRPC", targetPlayer, target.photonView.ViewID); otherStateSyncedCount++; }
-                        }
-                        specificStateSyncedCount++; specificStateSynced = true;
-                    }
-
-                    // EnemyThinMan
-                    EnemyThinMan thinMan = enemy.GetComponent<EnemyThinMan>();
-                    if (thinMan != null)
-                    {
-                        enemyPv.RPC("UpdateStateRPC", targetPlayer, thinMan.currentState);
-                        // Corrected: Use GameUtilities & ReflectionCache
-                        PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(thinMan, ReflectionCache.EnemyThinMan_PlayerTargetField, "EnemyThinMan");
-                        if (target?.photonView != null) { enemyPv.RPC("SetTargetRPC", targetPlayer, target.photonView.ViewID, true); otherStateSyncedCount++; }
-                        specificStateSyncedCount++; specificStateSynced = true;
-                    }
-
-                    // EnemyTumbler
-                    EnemyTumbler tumbler = enemy.GetComponent<EnemyTumbler>();
-                    if (tumbler != null)
-                    {
-                        enemyPv.RPC("UpdateStateRPC", targetPlayer, tumbler.currentState);
-                        // Corrected: Use GameUtilities & ReflectionCache
-                        PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(tumbler, ReflectionCache.EnemyTumbler_TargetPlayerField, "EnemyTumbler");
-                        if (target?.photonView != null) { enemyPv.RPC("TargetPlayerRPC", targetPlayer, target.photonView.ViewID); otherStateSyncedCount++; }
-                        specificStateSyncedCount++; specificStateSynced = true;
-                    }
-
-                    // EnemyUpscream
-                    EnemyUpscream upscream = enemy.GetComponent<EnemyUpscream>();
-                    if (upscream != null)
-                    {
-                        enemyPv.RPC("UpdateStateRPC", targetPlayer, upscream.currentState);
-                        // Corrected: Use GameUtilities & ReflectionCache
-                        PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(upscream, ReflectionCache.EnemyUpscream_TargetPlayerField, "EnemyUpscream");
-                        if (target?.photonView != null)
-                        {
-                            enemyPv.RPC("TargetPlayerRPC", targetPlayer, target.photonView.ViewID); otherStateSyncedCount++;
-                            if (upscream.currentState == EnemyUpscream.State.PlayerNotice || upscream.currentState == EnemyUpscream.State.GoToPlayer || upscream.currentState == EnemyUpscream.State.Attack)
-                            {
-                                enemyPv.RPC("NoticeSetRPC", targetPlayer, target.photonView.ViewID); otherStateSyncedCount++;
-                            }
-                        }
-                        specificStateSyncedCount++; specificStateSynced = true;
-                    }
-
-                    // EnemyValuableThrower
-                    EnemyValuableThrower thrower = enemy.GetComponent<EnemyValuableThrower>();
-                    if (thrower != null)
-                    {
-                        enemyPv.RPC("UpdateStateRPC", targetPlayer, thrower.currentState);
-                        PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(thrower, AccessTools.Field(typeof(EnemyValuableThrower), "playerTarget"), "EnemyValuableThrower");
-                        if (target?.photonView != null)
-                        {
-                            enemyPv.RPC("UpdatePlayerTargetRPC", targetPlayer, target.photonView.ViewID); otherStateSyncedCount++;
-                            if (thrower.currentState == EnemyValuableThrower.State.PlayerNotice || thrower.currentState == EnemyValuableThrower.State.GetValuable || thrower.currentState == EnemyValuableThrower.State.GoToTarget)
-                            {
-                                enemyPv.RPC("NoticeRPC", targetPlayer, target.photonView.ViewID); otherStateSyncedCount++;
-                            }
-                        }
-                        specificStateSyncedCount++; specificStateSynced = true;
-                    }
-
-                    if (!specificStateSynced) { /* Logging */ }
-                    if (enemy.FreezeTimer > 0f) { enemyPv.RPC("FreezeRPC", targetPlayer, enemy.FreezeTimer); freezeSyncedCount++; }
                 }
                 else
                 {
-                    parentPv.RPC("DespawnRPC", targetPlayer); despawnRpcSentCount++;
+                    parentPhotonView.RPC("DespawnRPC", targetPlayer);
+                    despawnRpcSentCount++;
                 }
             }
-            catch (Exception ex) { LatePlugin.Log.LogError($"[EnemySyncManager] CRITICAL error processing enemy '{enemyName}': {ex}"); }
+            catch (Exception ex)
+            {
+                Log.LogError($"[EnemySyncManager] CRITICAL error processing spawn/despawn or detailed state for enemy '{enemyName}' (Parent PV: {parentPhotonView?.ViewID}): {ex}");
+            }
         }
-        LatePlugin.Log.LogInfo($"[EnemySyncManager] === Finished FULL enemy state sync for {nick}. Processed: {processedCount}, SpawnRPCs: {spawnRpcSentCount}, DespawnRPCs: {despawnRpcSentCount}, SpecificStates: {specificStateSyncedCount}, Freezes: {freezeSyncedCount}, OtherStates: {otherStateSyncedCount} ===");
+        Log.LogInfo($"[EnemySyncManager] === Finished FULL enemy state sync for {targetNickname}. " +
+                      $"Processed: {processedCount}, SpawnRPCs: {spawnRpcSentCount}, DespawnRPCs: {despawnRpcSentCount}, " +
+                      $"SpecificTypeStates: {specificStateSyncedCount}, Freezes: {freezeSyncedCount}, OtherSubStates: {otherStateSyncedCount} ===");
+    }
+
+    /// <summary>
+    /// Handles the synchronization of states specific to different enemy controller types.
+    /// This is a helper method for <see cref="SyncAllEnemyStatesForPlayer"/>.
+    /// </summary>
+    private static void SyncSpecificEnemyTypeState(Enemy enemy, PhotonView enemyPhotonView, Player targetPlayer, ref int specificTypeStateCount, ref int otherSubStateCount)
+    {
+        bool specificHandlerApplied = false;
+
+        // Helper to send RPC and increment counts, with error handling.
+        void TrySendRPC(string rpcName, params object[] parameters)
+        {
+            try
+            {
+                enemyPhotonView.RPC(rpcName, targetPlayer, parameters);
+            }
+            catch (Exception ex)
+            {
+                Log.LogError($"[EnemySyncManager] RPC Error for '{enemy.name}' -> '{rpcName}' for player '{targetPlayer.NickName}': {ex}");
+            }
+        }
+
+        // --- Individual Enemy Type Checks and Sync ---
+        if (enemy.GetComponent<EnemyAnimal>() is { } animal)
+        { TrySendRPC("UpdateStateRPC", animal.currentState); specificTypeStateCount++; specificHandlerApplied = true; }
+
+        if (enemy.GetComponent<EnemyBang>() is { } bang)
+        {
+            TrySendRPC("UpdateStateRPC", bang.currentState);
+            FieldInfo? fuseActiveField = AccessTools.Field(typeof(EnemyBang), "fuseActive");
+            FieldInfo? fuseLerpField = AccessTools.Field(typeof(EnemyBang), "fuseLerp");
+            if (fuseActiveField != null && fuseLerpField != null)
+            {
+                try
+                {
+                    bool fuseActive = fuseActiveField.GetValue(bang) as bool? ?? false;
+                    float fuseLerp = fuseLerpField.GetValue(bang) as float? ?? 0f;
+                    TrySendRPC("FuseRPC", fuseActive, fuseLerp);
+                    otherSubStateCount++;
+                }
+                catch (Exception ex) { Log.LogError($"[EnemySyncManager] Error reflecting/sending EnemyBang Fuse state: {ex}"); }
+            }
+            specificTypeStateCount++; specificHandlerApplied = true;
+        }
+
+        if (enemy.GetComponent<EnemyBeamer>() is { } beamer)
+        {
+            TrySendRPC("UpdateStateRPC", beamer.currentState);
+            FieldInfo? moveFastField = AccessTools.Field(typeof(EnemyBeamer), "moveFast");
+            if (moveFastField != null)
+            { try { TrySendRPC("MoveFastRPC", moveFastField.GetValue(beamer) as bool? ?? false); otherSubStateCount++; } catch (Exception ex) { Log.LogError($"[EnemySyncManager] Error reflecting/sending EnemyBeamer MoveFast state: {ex}"); } }
+            PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(beamer, ReflectionCache.EnemyBeamer_PlayerTargetField, "EnemyBeamer");
+            if (target?.photonView != null) { TrySendRPC("UpdatePlayerTargetRPC", target.photonView.ViewID); otherSubStateCount++; }
+            specificTypeStateCount++; specificHandlerApplied = true;
+        }
+
+        if (enemy.GetComponent<EnemyBowtie>() is { } bowtie)
+        {
+            TrySendRPC("UpdateStateRPC", bowtie.currentState);
+            PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(bowtie, AccessTools.Field(typeof(EnemyBowtie), "playerTarget"), "EnemyBowtie"); // Assuming playerTarget is the correct field name.
+            if (target?.photonView != null) { TrySendRPC("NoticeRPC", target.photonView.ViewID); otherSubStateCount++; }
+            specificTypeStateCount++; specificHandlerApplied = true;
+        }
+
+        if (enemy.GetComponent<EnemyCeilingEye>() is { } ceilingEye)
+        {
+            TrySendRPC("UpdateStateRPC", ceilingEye.currentState);
+            PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(ceilingEye, ReflectionCache.EnemyCeilingEye_TargetPlayerField, "EnemyCeilingEye");
+            if (target?.photonView != null) { TrySendRPC("TargetPlayerRPC", target.photonView.ViewID); otherSubStateCount++; }
+            specificTypeStateCount++; specificHandlerApplied = true;
+        }
+
+        if (enemy.GetComponent<EnemyDuck>() is { } duck)
+        {
+            TrySendRPC("UpdateStateRPC", duck.currentState);
+            PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(duck, AccessTools.Field(typeof(EnemyDuck), "playerTarget"), "EnemyDuck");
+            if (target?.photonView != null) { TrySendRPC("UpdatePlayerTargetRPC", target.photonView.ViewID); otherSubStateCount++; }
+            specificTypeStateCount++; specificHandlerApplied = true;
+        }
+
+        if (enemy.GetComponent<EnemyFloater>() is { } floater)
+        {
+            TrySendRPC("UpdateStateRPC", floater.currentState);
+            PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(floater, ReflectionCache.EnemyFloater_TargetPlayerField, "EnemyFloater");
+            if (target?.photonView != null)
+            {
+                TrySendRPC("TargetPlayerRPC", target.photonView.ViewID); otherSubStateCount++;
+                if (floater.currentState != EnemyFloater.State.Attack &&
+                    floater.currentState != EnemyFloater.State.ChargeAttack &&
+                    floater.currentState != EnemyFloater.State.DelayAttack)
+                {
+                    TrySendRPC("NoticeRPC", target.photonView.ViewID); otherSubStateCount++;
+                }
+            }
+            specificTypeStateCount++; specificHandlerApplied = true;
+        }
+
+        if (enemy.GetComponent<EnemyGnome>() is { } gnome)
+        { TrySendRPC("UpdateStateRPC", gnome.currentState); specificTypeStateCount++; specificHandlerApplied = true; }
+
+        if (enemy.GetComponent<EnemyHidden>() is { } hidden)
+        {
+            TrySendRPC("UpdateStateRPC", hidden.currentState);
+            PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(hidden, AccessTools.Field(typeof(EnemyHidden), "playerTarget"), "EnemyHidden");
+            if (target?.photonView != null) { TrySendRPC("UpdatePlayerTargetRPC", target.photonView.ViewID); otherSubStateCount++; }
+            specificTypeStateCount++; specificHandlerApplied = true;
+        }
+
+        if (enemy.GetComponent<EnemyHunter>() is { } hunter)
+        {
+            TrySendRPC("UpdateStateRPC", hunter.currentState);
+            FieldInfo? invPointField = AccessTools.Field(typeof(EnemyHunter), "investigatePoint");
+            if (invPointField != null && (hunter.currentState == EnemyHunter.State.Investigate || hunter.currentState == EnemyHunter.State.Aim))
+            { try { TrySendRPC("UpdateInvestigationPoint", (Vector3)invPointField.GetValue(hunter)); otherSubStateCount++; } catch (Exception ex) { Log.LogError($"[EnemySyncManager] Error reflecting/sending EnemyHunter InvestigatePoint: {ex}"); } }
+            FieldInfo? moveFastField = AccessTools.Field(typeof(EnemyHunter), "moveFast");
+            if (moveFastField != null)
+            { try { TrySendRPC("MoveFastRPC", moveFastField.GetValue(hunter) as bool? ?? false); otherSubStateCount++; } catch (Exception ex) { Log.LogError($"[EnemySyncManager] Error reflecting/sending EnemyHunter MoveFast: {ex}"); } }
+            specificTypeStateCount++; specificHandlerApplied = true;
+        }
+
+        if (enemy.GetComponent<EnemyRobe>() is { } robe)
+        {
+            TrySendRPC("UpdateStateRPC", robe.currentState);
+            PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(robe, ReflectionCache.EnemyRobe_TargetPlayerField, "EnemyRobe");
+            if (target?.photonView != null) { TrySendRPC("TargetPlayerRPC", target.photonView.ViewID); otherSubStateCount++; }
+            FieldInfo? isOnScreenField = AccessTools.Field(typeof(EnemyRobe), "isOnScreen");
+            if (isOnScreenField != null)
+            { try { TrySendRPC("UpdateOnScreenRPC", isOnScreenField.GetValue(robe) as bool? ?? false); otherSubStateCount++; } catch (Exception ex) { Log.LogError($"[EnemySyncManager] Error reflecting/sending EnemyRobe IsOnScreen: {ex}"); } }
+            specificTypeStateCount++; specificHandlerApplied = true;
+        }
+
+        if (enemy.GetComponent<EnemyRunner>() is { } runner)
+        {
+            TrySendRPC("UpdateStateRPC", runner.currentState);
+            PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(runner, ReflectionCache.EnemyRunner_TargetPlayerField, "EnemyRunner");
+            if (target?.photonView != null) { TrySendRPC("UpdatePlayerTargetRPC", target.photonView.ViewID); otherSubStateCount++; }
+            specificTypeStateCount++; specificHandlerApplied = true;
+        }
+
+        if (enemy.GetComponent<EnemySlowMouth>() is { } mouth)
+        {
+            TrySendRPC("UpdateStateRPC", mouth.currentState);
+            PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(mouth, AccessTools.Field(typeof(EnemySlowMouth), "playerTarget"), "EnemySlowMouth");
+            if (target?.photonView != null) { TrySendRPC("UpdatePlayerTargetRPC", target.photonView.ViewID); otherSubStateCount++; }
+            specificTypeStateCount++; specificHandlerApplied = true;
+        }
+
+        if (enemy.GetComponent<EnemySlowWalker>() is { } walker)
+        {
+            TrySendRPC("UpdateStateRPC", walker.currentState);
+            PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(walker, ReflectionCache.EnemySlowWalker_TargetPlayerField, "EnemySlowWalker");
+            if (target?.photonView != null)
+            {
+                TrySendRPC("TargetPlayerRPC", target.photonView.ViewID); otherSubStateCount++;
+                if (walker.currentState == EnemySlowWalker.State.Notice)
+                {
+                    TrySendRPC("NoticeRPC", target.photonView.ViewID); otherSubStateCount++;
+                }
+            }
+            specificTypeStateCount++; specificHandlerApplied = true;
+        }
+
+        if (enemy.GetComponent<EnemyThinMan>() is { } thinMan)
+        {
+            TrySendRPC("UpdateStateRPC", thinMan.currentState);
+            PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(thinMan, ReflectionCache.EnemyThinMan_PlayerTargetField, "EnemyThinMan");
+            if (target?.photonView != null) { TrySendRPC("SetTargetRPC", target.photonView.ViewID, true); otherSubStateCount++; }
+            specificTypeStateCount++; specificHandlerApplied = true;
+        }
+
+        if (enemy.GetComponent<EnemyTumbler>() is { } tumbler)
+        {
+            TrySendRPC("UpdateStateRPC", tumbler.currentState);
+            PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(tumbler, ReflectionCache.EnemyTumbler_TargetPlayerField, "EnemyTumbler");
+            if (target?.photonView != null) { TrySendRPC("TargetPlayerRPC", target.photonView.ViewID); otherSubStateCount++; }
+            specificTypeStateCount++; specificHandlerApplied = true;
+        }
+
+        if (enemy.GetComponent<EnemyUpscream>() is { } upscream)
+        {
+            TrySendRPC("UpdateStateRPC", upscream.currentState);
+            PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(upscream, ReflectionCache.EnemyUpscream_TargetPlayerField, "EnemyUpscream");
+            if (target?.photonView != null)
+            {
+                TrySendRPC("TargetPlayerRPC", target.photonView.ViewID); otherSubStateCount++;
+                if (upscream.currentState == EnemyUpscream.State.PlayerNotice ||
+                    upscream.currentState == EnemyUpscream.State.GoToPlayer ||
+                    upscream.currentState == EnemyUpscream.State.Attack)
+                {
+                    TrySendRPC("NoticeSetRPC", target.photonView.ViewID); otherSubStateCount++;
+                }
+            }
+            specificTypeStateCount++; specificHandlerApplied = true;
+        }
+
+        if (enemy.GetComponent<EnemyValuableThrower>() is { } thrower)
+        {
+            TrySendRPC("UpdateStateRPC", thrower.currentState);
+            PlayerAvatar? target = GameUtilities.GetInternalPlayerTarget(thrower, AccessTools.Field(typeof(EnemyValuableThrower), "playerTarget"), "EnemyValuableThrower");
+            if (target?.photonView != null)
+            {
+                TrySendRPC("UpdatePlayerTargetRPC", target.photonView.ViewID); otherSubStateCount++;
+                if (thrower.currentState == EnemyValuableThrower.State.PlayerNotice ||
+                    thrower.currentState == EnemyValuableThrower.State.GetValuable ||
+                    thrower.currentState == EnemyValuableThrower.State.GoToTarget)
+                {
+                    TrySendRPC("NoticeRPC", target.photonView.ViewID); otherSubStateCount++;
+                }
+            }
+            specificTypeStateCount++; specificHandlerApplied = true;
+        }
+
+        if (!specificHandlerApplied)
+        {
+            Log.LogDebug($"[EnemySyncManager] No specific state sync logic found or applied for enemy type: {enemy.GetType().Name} (Name: {enemy.name}).");
+        }
     }
     #endregion
 }

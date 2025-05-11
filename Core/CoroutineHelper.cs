@@ -1,41 +1,33 @@
 // File: L.A.T.E/Core/CoroutineHelper.cs
-using UnityEngine;
-using LATE.Utilities;
+using System.Collections;
 
-namespace LATE.Core; // File-scoped namespace
+using UnityEngine;
+
+using LATE.Utilities; // GameUtilities
+
+namespace LATE.Core;
 
 /// <summary>
-/// Helper class for managing a global MonoBehaviour instance to run coroutines.
+/// Central place to grab a <see cref="MonoBehaviour"/> suitable for starting
+/// coroutines when you’re inside a static class or outside any scene object.
 /// </summary>
 internal static class CoroutineHelper
 {
-    private static MonoBehaviour? _coroutineRunner;
+    private const string LogPrefix = "[CoroutineHelper]";
+    private static MonoBehaviour? _runner;
 
-    /// <summary>
-    /// Gets a MonoBehaviour instance that can be used to start coroutines.
-    /// It attempts to find a suitable game object (like RunManager or GameDirector)
-    /// and caches it.
-    /// </summary>
-    internal static MonoBehaviour? CoroutineRunner
-    {
-        get
-        {
-            if (_coroutineRunner == null)
-            {
-                // Now calls the method on GameUtilities within the LATE.Utilities namespace
-                _coroutineRunner = GameUtilities.FindCoroutineRunner();
-            }
-            return _coroutineRunner;
-        }
-    }
+    /// <summary>Returns (and caches) a safe runner. May be <c>null</c> if none found.</summary>
+    internal static MonoBehaviour? CoroutineRunner =>
+        _runner ??= GameUtilities.FindCoroutineRunner();
 
-    /// <summary>
-    /// Clears the cached CoroutineRunner reference. This can be useful if the
-    /// game scene changes and the previous runner becomes invalid.
-    /// </summary>
+    /// <summary>Clear the cached runner—call on scene-change if needed.</summary>
     internal static void ClearCoroutineRunnerCache()
     {
-        LatePlugin.Log.LogDebug("Clearing cached CoroutineRunner in CoroutineHelper.");
-        _coroutineRunner = null;
+        LatePlugin.Log.LogDebug($"{LogPrefix} Clearing cached runner.");
+        _runner = null;
     }
+
+    /// <summary>Utility sugar: try start a coroutine immediately if a runner exists.</summary>
+    internal static Coroutine? Start(IEnumerator routine) =>
+        CoroutineRunner != null ? CoroutineRunner.StartCoroutine(routine) : null;
 }

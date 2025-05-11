@@ -16,7 +16,7 @@ internal static class NetworkManagerPatches
     /// Handles post-processing when a new player enters the room.
     /// This is an EXPLICIT Harmony patch.
     /// </summary>
-    public static void NetworkManager_OnPlayerEnteredRoom_Postfix(Photon.Realtime.Player newPlayer) // Fully qualified
+    public static void NetworkManager_OnPlayerEnteredRoom_Postfix(Photon.Realtime.Player newPlayer)
     {
         if (!GameUtilities.IsModLogicActive())
         {
@@ -29,6 +29,7 @@ internal static class NetworkManagerPatches
         LatePlugin.Log.LogDebug(
             $"[NetworkManagerPatches] Player entered room: {newPlayer?.NickName ?? "NULL"} (ActorNr: {newPlayer?.ActorNumber ?? -1}) in an active scene."
         );
+
         if (newPlayer != null)
         {
             LateJoinManager.HandlePlayerJoined(newPlayer);
@@ -45,7 +46,7 @@ internal static class NetworkManagerPatches
     /// Handles when a player leaves the room by tracking position and cleaning up tracking.
     /// This is an EXPLICIT Harmony patch.
     /// </summary>
-    public static void NetworkManager_OnPlayerLeftRoom_Postfix(Photon.Realtime.Player otherPlayer) // Fully qualified
+    public static void NetworkManager_OnPlayerLeftRoom_Postfix(Photon.Realtime.Player otherPlayer)
     {
         if (otherPlayer != null)
         {
@@ -59,13 +60,18 @@ internal static class NetworkManagerPatches
             );
 
             if (otherPlayer != null)
+            {
                 LatePlugin.Log?.LogInfo(
                     $"[NetworkManagerPatches][BaseGamePassthrough] Player left room: {otherPlayer.NickName} (ActorNr: {otherPlayer.ActorNumber})"
                 );
+            }
             else
+            {
                 LatePlugin.Log?.LogWarning(
                     "[NetworkManagerPatches][BaseGamePassthrough] Received null player in OnPlayerLeftRoom_Postfix."
                 );
+            }
+
             return;
         }
 
@@ -92,8 +98,10 @@ internal static class NetworkManagerPatches
                         $"[NetworkManagerPatches] Could not find PlayerAvatar for leaving player {otherPlayer.NickName} to track position."
                     );
                 }
+
                 EnemySyncManager.NotifyEnemiesOfLeavingPlayer(otherPlayer);
             }
+
             VoiceManager.HandlePlayerLeft(otherPlayer);
         }
         else

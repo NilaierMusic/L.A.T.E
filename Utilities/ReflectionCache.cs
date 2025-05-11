@@ -1,224 +1,192 @@
 // File: L.A.T.E/Utilities/ReflectionCache.cs
-using System;
+using System.Collections.Generic;
 using System.Reflection;
+
 using HarmonyLib;
-using Photon.Pun; // For PhotonNetwork
-using LATE.Core; // For LatePlugin.Log
 
-namespace LATE.Utilities; // File-scoped namespace
+using Photon.Pun;
 
-/// <summary>
-/// Centralized cache for all reflected FieldInfo and MethodInfo instances.
-/// This helps to avoid repeated reflection calls and provides a single point
-/// to manage and verify reflected members.
-/// </summary>
+using LATE.Core;    // LatePlugin.Log
+
+namespace LATE.Utilities;
+
 internal static class ReflectionCache
 {
-    // --- PhotonNetwork reflection fields ---
-    internal static readonly FieldInfo? PhotonNetwork_RemoveFilterField = AccessTools.Field(typeof(PhotonNetwork), "removeFilter");
-    internal static readonly FieldInfo? PhotonNetwork_KeyByteSevenField = AccessTools.Field(typeof(PhotonNetwork), "keyByteSeven");
-    internal static readonly FieldInfo? PhotonNetwork_ServerCleanOptionsField = AccessTools.Field(typeof(PhotonNetwork), "ServerCleanOptions");
-    internal static readonly MethodInfo? PhotonNetwork_RaiseEventInternalMethod = AccessTools.Method(typeof(PhotonNetwork), "RaiseEventInternal");
+    private const string LogPrefix = "[ReflectionCache]";
 
-    // --- RunManager fields ---
-    internal static readonly FieldInfo? RunManager_RunManagerPUNField = AccessTools.Field(typeof(RunManager), "runManagerPUN");
-    internal static readonly FieldInfo? RunManager_RunLivesField = AccessTools.Field(typeof(RunManager), "runLives");
-    internal static readonly FieldInfo? RunManager_RestartingField = AccessTools.Field(typeof(RunManager), "restarting");
-    internal static readonly FieldInfo? RunManager_RestartingDoneField = AccessTools.Field(typeof(RunManager), "restartingDone");
-    internal static readonly FieldInfo? RunManager_LobbyJoinField = AccessTools.Field(typeof(RunManager), "lobbyJoin");
-    internal static readonly FieldInfo? RunManager_WaitToChangeSceneField = AccessTools.Field(typeof(RunManager), "waitToChangeScene");
-    internal static readonly FieldInfo? RunManager_GameOverField = AccessTools.Field(typeof(RunManager), "gameOver");
+    /* ─── helpers ────────────────────────────────────────────────────────── */
 
-    // --- RunManagerPUN fields ---
-    internal static readonly FieldInfo? RunManagerPUN_PhotonViewField = AccessTools.Field(typeof(RunManagerPUN), "photonView");
+    // generic: for normal (non-static) classes
+    private static FieldInfo? F<T>(string name) => AccessTools.Field(typeof(T), name);
+    private static MethodInfo? M<T>(string name) => AccessTools.Method(typeof(T), name);
 
-    // --- PlayerAvatar fields ---
-    internal static readonly FieldInfo? PlayerAvatar_SpawnedField = AccessTools.Field(typeof(PlayerAvatar), "spawned");
-    internal static readonly FieldInfo? PlayerAvatar_PhotonViewField = AccessTools.Field(typeof(PlayerAvatar), "photonView");
-    internal static readonly FieldInfo? PlayerAvatar_PlayerNameField = AccessTools.Field(typeof(PlayerAvatar), "playerName");
-    internal static readonly FieldInfo? PlayerAvatar_OutroDoneField = AccessTools.Field(typeof(PlayerAvatar), "outroDone");
-    internal static readonly FieldInfo? PlayerAvatar_VoiceChatFetchedField = AccessTools.Field(typeof(PlayerAvatar), "voiceChatFetched");
-    internal static readonly FieldInfo? PlayerAvatar_VoiceChatField = AccessTools.Field(typeof(PlayerAvatar), "voiceChat");
-    internal static readonly FieldInfo? PlayerAvatar_IsDisabledField = AccessTools.Field(typeof(PlayerAvatar), "isDisabled");
-    internal static readonly FieldInfo? PlayerAvatar_DeadSetField = AccessTools.Field(typeof(PlayerAvatar), "deadSet");
-    internal static readonly FieldInfo? PlayerAvatar_PlayerDeathHeadField = AccessTools.Field(typeof(PlayerAvatar), "playerDeathHead");
-    internal static readonly FieldInfo? PlayerAvatar_PhysGrabberField = AccessTools.Field(typeof(PlayerAvatar), "physGrabber");
+    // non-generic: so we can handle static classes like PhotonNetwork
+    private static FieldInfo? F(Type t, string name) => AccessTools.Field(t, name);
+    private static MethodInfo? M(Type t, string name) => AccessTools.Method(t, name);
 
-    // --- PlayerDeathHead fields ---
-    internal static readonly FieldInfo? PlayerDeathHead_PhysGrabObjectField = AccessTools.Field(typeof(PlayerDeathHead), "physGrabObject");
+    private static readonly List<(FieldInfo? Fi, string Name)> _critical = new();
+    private static FieldInfo? Crit(Type t, string name)
+    {
+        var fi = F(t, name);
+        _critical.Add((fi, $"{t.Name}.{name}"));
+        return fi;
+    }
+    private static FieldInfo? Crit<T>(string name) => Crit(typeof(T), name);   // convenience
 
-    // --- PhysGrabber fields ---
-    internal static readonly FieldInfo? PhysGrabber_PhotonViewField = AccessTools.Field(typeof(PhysGrabber), "photonView");
+    /* ─── PhotonNetwork (static class → use Type overloads) ──────────────── */
 
-    // --- PhysGrabObject fields ---
-    internal static readonly FieldInfo? PhysGrabObject_PhotonViewField = AccessTools.Field(typeof(PhysGrabObject), "photonView");
-    internal static readonly FieldInfo? PhysGrabObject_IsMeleeField = AccessTools.Field(typeof(PhysGrabObject), "isMelee");
+    internal static readonly FieldInfo? PhotonNetwork_RemoveFilterField = Crit(typeof(PhotonNetwork), "removeFilter");
+    internal static readonly FieldInfo? PhotonNetwork_KeyByteSevenField = Crit(typeof(PhotonNetwork), "keyByteSeven");
+    internal static readonly FieldInfo? PhotonNetwork_ServerCleanOptionsField = F(typeof(PhotonNetwork), "ServerCleanOptions");
 
-    // --- PhysGrabHinge fields ---
-    internal static readonly FieldInfo? PhysGrabHinge_ClosedField = AccessTools.Field(typeof(PhysGrabHinge), "closed");
-    internal static readonly FieldInfo? PhysGrabHinge_BrokenField = AccessTools.Field(typeof(PhysGrabHinge), "broken");
-    internal static readonly FieldInfo? PhysGrabHinge_JointField = AccessTools.Field(typeof(PhysGrabHinge), "joint");
+    // Keep the ORIGINAL name so existing code compiles
+    internal static readonly MethodInfo? PhotonNetwork_RaiseEventInternalMethod =
+        M(typeof(PhotonNetwork), "RaiseEventInternal");
 
-    // --- ItemAttributes fields ---
-    internal static readonly FieldInfo? ItemAttributes_InstanceNameField = AccessTools.Field(typeof(ItemAttributes), "instanceName");
-    internal static readonly FieldInfo? ItemAttributes_ValueField = AccessTools.Field(typeof(ItemAttributes), "value");
-    internal static readonly FieldInfo? ItemAttributes_ShopItemField = AccessTools.Field(typeof(ItemAttributes), "shopItem");
-    internal static readonly FieldInfo? ItemAttributes_DisableUIField = AccessTools.Field(typeof(ItemAttributes), "disableUI");
+    /* ───────────────────────  RunManager   ──────────────────────── */
 
-    // --- ItemEquippable fields ---
-    internal static readonly FieldInfo? ItemEquippable_CurrentStateField = AccessTools.Field(typeof(ItemEquippable), "currentState");
-    internal static readonly FieldInfo? ItemEquippable_OwnerPlayerIdField = AccessTools.Field(typeof(ItemEquippable), "ownerPlayerId");
-    internal static readonly FieldInfo? ItemEquippable_InventorySpotIndexField = AccessTools.Field(typeof(ItemEquippable), "inventorySpotIndex");
+    internal static readonly FieldInfo? RunManager_RunManagerPUNField = F<RunManager>("runManagerPUN");
+    internal static readonly FieldInfo? RunManager_RunLivesField = F<RunManager>("runLives");
+    internal static readonly FieldInfo? RunManager_RestartingField = F<RunManager>("restarting");
+    internal static readonly FieldInfo? RunManager_RestartingDoneField = F<RunManager>("restartingDone");
+    internal static readonly FieldInfo? RunManager_LobbyJoinField = F<RunManager>("lobbyJoin");
+    internal static readonly FieldInfo? RunManager_WaitToChangeSceneField = F<RunManager>("waitToChangeScene");
+    internal static readonly FieldInfo? RunManager_GameOverField = F<RunManager>("gameOver");
 
-    // --- ItemGrenade fields ---
-    internal static readonly FieldInfo? ItemGrenade_IsActiveField = AccessTools.Field(typeof(ItemGrenade), "isActive");
+    /* ───────────────────────  RunManagerPUN  ────────────────────── */
 
-    // --- ItemTracker fields ---
-    internal static readonly FieldInfo? ItemTracker_CurrentTargetField = AccessTools.Field(typeof(ItemTracker), "currentTarget");
-    internal static readonly FieldInfo? ItemTracker_CurrentTargetPGOField = AccessTools.Field(typeof(ItemTracker), "currentTargetPhysGrabObject");
+    internal static readonly FieldInfo? RunManagerPUN_PhotonViewField = F<RunManagerPUN>("photonView");
 
-    // --- ItemMine fields ---
-    internal static readonly FieldInfo? ItemMine_StateField = AccessTools.Field(typeof(ItemMine), "state");
+    /* ───────────────────────  PlayerAvatar  ─────────────────────── */
 
-    // --- ItemToggle fields ---
-    internal static readonly FieldInfo? ItemToggle_DisabledField = AccessTools.Field(typeof(ItemToggle), "disabled");
+    internal static readonly FieldInfo? PlayerAvatar_SpawnedField = F<PlayerAvatar>("spawned");
+    internal static readonly FieldInfo? PlayerAvatar_PhotonViewField = F<PlayerAvatar>("photonView");
+    internal static readonly FieldInfo? PlayerAvatar_PlayerNameField = F<PlayerAvatar>("playerName");
+    internal static readonly FieldInfo? PlayerAvatar_OutroDoneField = F<PlayerAvatar>("outroDone");
+    internal static readonly FieldInfo? PlayerAvatar_VoiceChatFetchedField = F<PlayerAvatar>("voiceChatFetched");
+    internal static readonly FieldInfo? PlayerAvatar_VoiceChatField = F<PlayerAvatar>("voiceChat");
+    internal static readonly FieldInfo? PlayerAvatar_IsDisabledField = F<PlayerAvatar>("isDisabled");
+    internal static readonly FieldInfo? PlayerAvatar_DeadSetField = F<PlayerAvatar>("deadSet");
+    internal static readonly FieldInfo? PlayerAvatar_PlayerDeathHeadField = F<PlayerAvatar>("playerDeathHead");
+    internal static readonly FieldInfo? PlayerAvatar_PhysGrabberField = F<PlayerAvatar>("physGrabber");
 
-    // --- ItemHealthPack fields ---
-    internal static readonly FieldInfo? ItemHealthPack_UsedField = AccessTools.Field(typeof(ItemHealthPack), "used");
+    /* ───────────────────────  PlayerDeathHead  ──────────────────── */
 
-    // --- Enemy fields ---
-    internal static readonly FieldInfo? Enemy_VisionField = AccessTools.Field(typeof(Enemy), "Vision");
-    internal static readonly FieldInfo? Enemy_PhotonViewField = AccessTools.Field(typeof(Enemy), "PhotonView");
-    internal static readonly FieldInfo? Enemy_TargetPlayerAvatarField = AccessTools.Field(typeof(Enemy), "TargetPlayerAvatar");
-    internal static readonly FieldInfo? Enemy_TargetPlayerViewIDField = AccessTools.Field(typeof(Enemy), "TargetPlayerViewID");
-    internal static readonly FieldInfo? Enemy_EnemyParentField = AccessTools.Field(typeof(Enemy), "EnemyParent");
+    internal static readonly FieldInfo? PlayerDeathHead_PhysGrabObjectField = F<PlayerDeathHead>("physGrabObject");
 
-    // --- Enemy specific controller fields for player targets ---
-    internal static readonly FieldInfo? EnemyBeamer_PlayerTargetField = AccessTools.Field(typeof(EnemyBeamer), "playerTarget");
-    internal static readonly FieldInfo? EnemyCeilingEye_TargetPlayerField = AccessTools.Field(typeof(EnemyCeilingEye), "targetPlayer");
-    internal static readonly FieldInfo? EnemyFloater_TargetPlayerField = AccessTools.Field(typeof(EnemyFloater), "targetPlayer");
-    internal static readonly FieldInfo? EnemyRobe_TargetPlayerField = AccessTools.Field(typeof(EnemyRobe), "targetPlayer");
-    internal static readonly FieldInfo? EnemyRunner_TargetPlayerField = AccessTools.Field(typeof(EnemyRunner), "targetPlayer");
-    internal static readonly FieldInfo? EnemySlowWalker_TargetPlayerField = AccessTools.Field(typeof(EnemySlowWalker), "targetPlayer");
-    internal static readonly FieldInfo? EnemyThinMan_PlayerTargetField = AccessTools.Field(typeof(EnemyThinMan), "playerTarget");
-    internal static readonly FieldInfo? EnemyTumbler_TargetPlayerField = AccessTools.Field(typeof(EnemyTumbler), "targetPlayer");
-    internal static readonly FieldInfo? EnemyUpscream_TargetPlayerField = AccessTools.Field(typeof(EnemyUpscream), "targetPlayer");
-    // Add other enemy types if they have a 'playerTarget' or similar field that needs caching.
+    /* ───────────────────────  PhysGrabber + friends  ────────────── */
 
-    // --- EnemyOnScreen fields ---
-    internal static readonly FieldInfo? EnemyOnScreen_OnScreenPlayerField = AccessTools.Field(typeof(EnemyOnScreen), "OnScreenPlayer");
-    internal static readonly FieldInfo? EnemyOnScreen_CulledPlayerField = AccessTools.Field(typeof(EnemyOnScreen), "CulledPlayer");
+    internal static readonly FieldInfo? PhysGrabber_PhotonViewField = F<PhysGrabber>("photonView");
 
-    // --- EnemyNavMeshAgent fields ---
-    internal static readonly FieldInfo? EnemyNavMeshAgent_AgentField = AccessTools.Field(typeof(EnemyNavMeshAgent), "Agent");
+    internal static readonly FieldInfo? PhysGrabObject_PhotonViewField = F<PhysGrabObject>("photonView");
+    internal static readonly FieldInfo? PhysGrabObject_IsMeleeField = F<PhysGrabObject>("isMelee");
 
-    // --- EnemyStateInvestigate fields ---
-    internal static readonly FieldInfo? EnemyStateInvestigate_OnInvestigateTriggeredPositionField = AccessTools.Field(typeof(EnemyStateInvestigate), "onInvestigateTriggeredPosition");
+    internal static readonly FieldInfo? PhysGrabHinge_ClosedField = F<PhysGrabHinge>("closed");
+    internal static readonly FieldInfo? PhysGrabHinge_BrokenField = F<PhysGrabHinge>("broken");
+    internal static readonly FieldInfo? PhysGrabHinge_JointField = F<PhysGrabHinge>("joint");
 
-    // --- EnemyParent Fields ---
-    internal static readonly FieldInfo? EnemyParent_SpawnedField = AccessTools.Field(typeof(EnemyParent), "Spawned");
+    /* ───────────────────────  Item/Inventory  ───────────────────── */
 
-    // --- RoundDirector fields ---
-    internal static readonly FieldInfo? RoundDirector_ExtractionPointActiveField = AccessTools.Field(typeof(RoundDirector), "extractionPointActive");
-    internal static readonly FieldInfo? RoundDirector_ExtractionPointCurrentField = AccessTools.Field(typeof(RoundDirector), "extractionPointCurrent");
-    internal static readonly FieldInfo? RoundDirector_ExtractionPointSurplusField = AccessTools.Field(typeof(RoundDirector), "extractionPointSurplus");
+    internal static readonly FieldInfo? ItemAttributes_InstanceNameField = F<ItemAttributes>("instanceName");
+    internal static readonly FieldInfo? ItemAttributes_ValueField = F<ItemAttributes>("value");
+    internal static readonly FieldInfo? ItemAttributes_ShopItemField = F<ItemAttributes>("shopItem");
+    internal static readonly FieldInfo? ItemAttributes_DisableUIField = F<ItemAttributes>("disableUI");
 
-    // --- ValuableDirector fields ---
-    internal static readonly FieldInfo? ValuableDirector_ValuableTargetAmountField = AccessTools.Field(typeof(ValuableDirector), "valuableTargetAmount");
+    internal static readonly FieldInfo? ItemEquippable_CurrentStateField = F<ItemEquippable>("currentState");
+    internal static readonly FieldInfo? ItemEquippable_OwnerPlayerIdField = F<ItemEquippable>("ownerPlayerId");
+    internal static readonly FieldInfo? ItemEquippable_InventorySpotIndex = F<ItemEquippable>("inventorySpotIndex");
 
-    // --- ValuableObject fields ---
-    internal static readonly FieldInfo? ValuableObject_DollarValueSetField = AccessTools.Field(typeof(ValuableObject), "dollarValueSet");
+    internal static readonly FieldInfo? ItemGrenade_IsActiveField = F<ItemGrenade>("isActive");
 
-    // --- ExtractionPoint fields ---
-    internal static readonly FieldInfo? ExtractionPoint_CurrentStateField = AccessTools.Field(typeof(ExtractionPoint), "currentState");
-    internal static readonly FieldInfo? ExtractionPoint_HaulGoalFetchedField = AccessTools.Field(typeof(ExtractionPoint), "haulGoalFetched");
-    internal static readonly FieldInfo? ExtractionPoint_IsShopField = AccessTools.Field(typeof(ExtractionPoint), "isShop");
+    internal static readonly FieldInfo? ItemTracker_CurrentTargetField = F<ItemTracker>("currentTarget");
+    internal static readonly FieldInfo? ItemTracker_CurrentTargetPGOField = F<ItemTracker>("currentTargetPhysGrabObject");
 
-    // --- ShopManager fields ---
-    internal static readonly FieldInfo? ShopManager_ShoppingListField = AccessTools.Field(typeof(ShopManager), "shoppingList");
+    internal static readonly FieldInfo? ItemMine_StateField = F<ItemMine>("state");
+    internal static readonly FieldInfo? ItemToggle_DisabledField = F<ItemToggle>("disabled");
+    internal static readonly FieldInfo? ItemHealthPack_UsedField = F<ItemHealthPack>("used");
 
-    // --- Module fields ---
-    internal static readonly FieldInfo? Module_SetupDoneField = AccessTools.Field(typeof(Module), "SetupDone");
-    internal static readonly FieldInfo? Module_ConnectingTopField = AccessTools.Field(typeof(Module), "ConnectingTop");
-    internal static readonly FieldInfo? Module_ConnectingBottomField = AccessTools.Field(typeof(Module), "ConnectingBottom");
-    internal static readonly FieldInfo? Module_ConnectingRightField = AccessTools.Field(typeof(Module), "ConnectingRight");
-    internal static readonly FieldInfo? Module_ConnectingLeftField = AccessTools.Field(typeof(Module), "ConnectingLeft");
-    internal static readonly FieldInfo? Module_FirstField = AccessTools.Field(typeof(Module), "First");
+    /* ───────────────────────  Enemy & AI  ───────────────────────── */
 
-    // --- Arena Fields ---
-    internal static readonly FieldInfo? Arena_WinnerPlayerField = AccessTools.Field(typeof(Arena), "winnerPlayer");
-    internal static readonly FieldInfo? Arena_PhotonViewField = AccessTools.Field(typeof(Arena), "photonView");
-    internal static readonly FieldInfo? Arena_CurrentStateField = AccessTools.Field(typeof(Arena), "currentState");
-    internal static readonly FieldInfo? Arena_LevelField = AccessTools.Field(typeof(Arena), "level");
-    internal static readonly FieldInfo? Arena_CrownCageDestroyedField = AccessTools.Field(typeof(Arena), "crownCageDestroyed");
-    internal static readonly FieldInfo? Arena_PlayersAliveField = AccessTools.Field(typeof(Arena), "playersAlive");
+    internal static readonly FieldInfo? Enemy_VisionField = F<Enemy>("Vision");
+    internal static readonly FieldInfo? Enemy_PhotonViewField = F<Enemy>("PhotonView");
+    internal static readonly FieldInfo? Enemy_TargetPlayerAvatarField = F<Enemy>("TargetPlayerAvatar");
+    internal static readonly FieldInfo? Enemy_TargetPlayerViewIDField = F<Enemy>("TargetPlayerViewID");
+    internal static readonly FieldInfo? Enemy_EnemyParentField = F<Enemy>("EnemyParent");
 
-    // --- ValuablePropSwitch fields (internal, so caching might be less critical but good for consistency) ---
-    internal static readonly FieldInfo? ValuablePropSwitch_SetupCompleteField = AccessTools.Field(typeof(ValuablePropSwitch), "SetupComplete");
+    // per-enemy controller “playerTarget” style fields
+    internal static readonly FieldInfo? EnemyBeamer_PlayerTargetField = F<EnemyBeamer>("playerTarget");
+    internal static readonly FieldInfo? EnemyCeilingEye_TargetPlayerField = F<EnemyCeilingEye>("targetPlayer");
+    internal static readonly FieldInfo? EnemyFloater_TargetPlayerField = F<EnemyFloater>("targetPlayer");
+    internal static readonly FieldInfo? EnemyRobe_TargetPlayerField = F<EnemyRobe>("targetPlayer");
+    internal static readonly FieldInfo? EnemyRunner_TargetPlayerField = F<EnemyRunner>("targetPlayer");
+    internal static readonly FieldInfo? EnemySlowWalker_TargetPlayerField = F<EnemySlowWalker>("targetPlayer");
+    internal static readonly FieldInfo? EnemyThinMan_PlayerTargetField = F<EnemyThinMan>("playerTarget");
+    internal static readonly FieldInfo? EnemyTumbler_TargetPlayerField = F<EnemyTumbler>("targetPlayer");
+    internal static readonly FieldInfo? EnemyUpscream_TargetPlayerField = F<EnemyUpscream>("targetPlayer");
 
+    /* ───────────────────────  EnemyOnScreen + Nav/Investigate  ──── */
 
-    // --- TruckScreenText fields ---
-    internal static readonly FieldInfo? TruckScreenText_CurrentPageIndexField = AccessTools.Field(typeof(TruckScreenText), "currentPageIndex");
+    internal static readonly FieldInfo? EnemyOnScreen_OnScreenPlayerField = F<EnemyOnScreen>("OnScreenPlayer");
+    internal static readonly FieldInfo? EnemyOnScreen_CulledPlayerField = F<EnemyOnScreen>("CulledPlayer");
+
+    internal static readonly FieldInfo? EnemyNavMeshAgent_AgentField = F<EnemyNavMeshAgent>("Agent");
+
+    internal static readonly FieldInfo? EnemyStateInvestigate_OnInvestigateTriggeredPositionField =
+        F<EnemyStateInvestigate>("onInvestigateTriggeredPosition");
+
+    /* ───────────────────────  EnemyParent  ──────────────────────── */
+
+    internal static readonly FieldInfo? EnemyParent_SpawnedField = F<EnemyParent>("Spawned");
+
+    /* ───────────────────────  Round / Valuable / Extraction  ────── */
+
+    internal static readonly FieldInfo? RoundDirector_ExtractionPointActiveField = F<RoundDirector>("extractionPointActive");
+    internal static readonly FieldInfo? RoundDirector_ExtractionPointCurrentField = F<RoundDirector>("extractionPointCurrent");
+    internal static readonly FieldInfo? RoundDirector_ExtractionPointSurplusField = F<RoundDirector>("extractionPointSurplus");
+
+    internal static readonly FieldInfo? ValuableDirector_ValuableTargetAmountField = F<ValuableDirector>("valuableTargetAmount");
+    internal static readonly FieldInfo? ValuableObject_DollarValueSetField = F<ValuableObject>("dollarValueSet");
+
+    internal static readonly FieldInfo? ExtractionPoint_CurrentStateField = F<ExtractionPoint>("currentState");
+    internal static readonly FieldInfo? ExtractionPoint_HaulGoalFetchedField = F<ExtractionPoint>("haulGoalFetched");
+    internal static readonly FieldInfo? ExtractionPoint_IsShopField = F<ExtractionPoint>("isShop");
+
+    internal static readonly FieldInfo? ShopManager_ShoppingListField = F<ShopManager>("shoppingList");
+
+    /* ───────────────────────  Module / Arena / Misc  ────────────── */
+
+    internal static readonly FieldInfo? Module_SetupDoneField = F<Module>("SetupDone");
+    internal static readonly FieldInfo? Module_ConnectingTopField = F<Module>("ConnectingTop");
+    internal static readonly FieldInfo? Module_ConnectingBottomField = F<Module>("ConnectingBottom");
+    internal static readonly FieldInfo? Module_ConnectingRightField = F<Module>("ConnectingRight");
+    internal static readonly FieldInfo? Module_ConnectingLeftField = F<Module>("ConnectingLeft");
+    internal static readonly FieldInfo? Module_FirstField = F<Module>("First");
+
+    internal static readonly FieldInfo? Arena_WinnerPlayerField = F<Arena>("winnerPlayer");
+    internal static readonly FieldInfo? Arena_PhotonViewField = F<Arena>("photonView");
+    internal static readonly FieldInfo? Arena_CurrentStateField = F<Arena>("currentState");
+    internal static readonly FieldInfo? Arena_LevelField = F<Arena>("level");
+    internal static readonly FieldInfo? Arena_CrownCageDestroyedField = F<Arena>("crownCageDestroyed");
+    internal static readonly FieldInfo? Arena_PlayersAliveField = F<Arena>("playersAlive");
+
+    /* ───────────────────────  ValuablePropSwitch  ───────────────── */
+
+    internal static readonly FieldInfo? ValuablePropSwitch_SetupCompleteField = F<ValuablePropSwitch>("SetupComplete");
+
+    /* ───────────────────────  TruckScreenText  ──────────────────── */
+
+    internal static readonly FieldInfo? TruckScreenText_CurrentPageIndexField = F<TruckScreenText>("currentPageIndex");
 
     static ReflectionCache()
     {
-        // List of fields that are considered critical for the mod's functionality.
-        // If any of these are not found, a log error will be generated.
-        var criticalFields = new (FieldInfo? Field, string Name)[]
-        {
-            (PlayerAvatar_PlayerNameField, "PlayerAvatar.playerName"),
-            (ValuableObject_DollarValueSetField, "ValuableObject.dollarValueSet"),
-            (Enemy_VisionField, "Enemy.Vision (internal property, check game updates if null)"),
-            (Enemy_PhotonViewField, "Enemy.PhotonView (internal property, check game updates if null)"),
-            (Enemy_TargetPlayerAvatarField, "Enemy.TargetPlayerAvatar (internal property, check game updates if null)"),
-            (Enemy_TargetPlayerViewIDField, "Enemy.TargetPlayerViewID (internal property, check game updates if null)"),
-            (Enemy_EnemyParentField, "Enemy.EnemyParent (internal field, check game updates if null)"),
-            (EnemyParent_SpawnedField, "EnemyParent.Spawned (internal field, check game updates if null)"),
-            (RoundDirector_ExtractionPointActiveField, "RoundDirector.extractionPointActive"),
-            (RoundDirector_ExtractionPointCurrentField, "RoundDirector.extractionPointCurrent"),
-            (ExtractionPoint_CurrentStateField, "ExtractionPoint.currentState (internal property)"),
-            (ExtractionPoint_HaulGoalFetchedField, "ExtractionPoint.haulGoalFetched (internal field)"),
-            (ExtractionPoint_IsShopField, "ExtractionPoint.isShop"),
-            (ShopManager_ShoppingListField, "ShopManager.shoppingList (internal field)"),
-            (RoundDirector_ExtractionPointSurplusField, "RoundDirector.extractionPointSurplus"),
-            (PhysGrabHinge_ClosedField, "PhysGrabHinge.closed (internal field)"),
-            (PhysGrabHinge_BrokenField, "PhysGrabHinge.broken (internal field)"),
-            (ItemAttributes_ValueField, "ItemAttributes.value"),
-            (ItemAttributes_ShopItemField, "ItemAttributes.shopItem"),
-            (ItemEquippable_CurrentStateField, "ItemEquippable.currentState (internal property)"),
-            (ItemEquippable_OwnerPlayerIdField, "ItemEquippable.ownerPlayerId (internal field)"),
-            (ItemEquippable_InventorySpotIndexField, "ItemEquippable.inventorySpotIndex (internal field)"),
-            (PlayerAvatar_PhysGrabberField, "PlayerAvatar.physGrabber"),
-            (ItemMine_StateField, "ItemMine.state (internal property)"),
-            (ItemGrenade_IsActiveField, "ItemGrenade.isActive (internal field)"),
-            (ItemTracker_CurrentTargetField, "ItemTracker.currentTarget (internal field)"),
-            (ItemToggle_DisabledField, "ItemToggle.disabled (internal field)"),
-            (ItemHealthPack_UsedField, "ItemHealthPack.used (internal field)"),
-            (PhysGrabObject_IsMeleeField, "PhysGrabObject.isMelee"),
-            (PhysGrabber_PhotonViewField, "PhysGrabber.photonView (internal field)"),
-            (PhysGrabObject_PhotonViewField, "PhysGrabObject.photonView (internal field)"),
-            (RunManager_GameOverField, "RunManager.gameOver"),
-            (RunManagerPUN_PhotonViewField, "RunManagerPUN.photonView (internal field)"),
-            (Module_SetupDoneField, "Module.SetupDone (internal field)"),
-            (TruckScreenText_CurrentPageIndexField, "TruckScreenText.currentPageIndex (internal field)"),
-            (PlayerAvatar_IsDisabledField, "PlayerAvatar.isDisabled"),
-            (PlayerAvatar_DeadSetField, "PlayerAvatar.deadSet"),
-            (PlayerAvatar_PlayerDeathHeadField, "PlayerAvatar.playerDeathHead"),
-            (PlayerDeathHead_PhysGrabObjectField, "PlayerDeathHead.physGrabObject"),
-            (Arena_WinnerPlayerField, "Arena.winnerPlayer (internal field)"),
-            (Arena_PhotonViewField, "Arena.photonView (internal field)"),
-            (Arena_CurrentStateField, "Arena.currentState (internal property)"),
-            (Arena_LevelField, "Arena.level (internal field)"),
-            (Arena_CrownCageDestroyedField, "Arena.crownCageDestroyed (internal field)"),
-        };
-
-        foreach (var (field, name) in criticalFields)
-        {
-            if (field == null)
+        int missing = 0;
+        foreach (var (fi, name) in _critical)
+            if (fi == null)
             {
-                LatePlugin.Log?.LogError($"[ReflectionCache] CRITICAL: Reflected member '{name}' not found. Mod functionality may be impaired. This might be due to a game update.");
+                ++missing;
+                LatePlugin.Log.LogError($"{LogPrefix} CRITICAL: {name} not found! Game update may have broken the mod.");
             }
-        }
-        LatePlugin.Log?.LogDebug($"[ReflectionCache] Static initialization complete. Verified {criticalFields.Length} critical members.");
+
+        LatePlugin.Log.LogDebug($"{LogPrefix} Init complete – {_critical.Count} critical fields scanned, {missing} missing.");
     }
 }

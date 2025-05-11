@@ -1,15 +1,16 @@
 ﻿// File: L.A.T.E/Managers/PlayerPositionManager.cs
-using System.Collections.Generic;
-using System.Runtime.CompilerServices;
+using LATE.Core;        // LatePlugin.Log
+using LATE.DataModels;  // PlayerTransformData
 using Photon.Realtime;
+using System.Runtime.CompilerServices;
 using UnityEngine;
-using LATE.Core; // For LatePlugin.Log
-using LATE.DataModels; // For PlayerTransformData
 
-namespace LATE.Managers; // File-scoped namespace
+namespace LATE.Managers;
 
-// PhotonPlayerExtensions class remains the same as it's a local utility here.
-// If it were more general, it might move to LATE.Utilities.
+/// <summary>
+/// Local Photon player helper.  
+/// If it becomes broadly useful we can move it to `LATE.Utilities`.
+/// </summary>
 internal static class PhotonPlayerExtensions
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -21,120 +22,75 @@ internal static class PhotonPlayerExtensions
 }
 
 /// <summary>
-/// Keeps track of every player's last meaningful position (either their alive position
-/// or their death head's position) within the current level instance.
-/// This is used by the "Spawn At Last Position" feature for rejoining players.
+/// Keeps track of every player’s last meaningful position (alive or death-head) within
+/// the current level.  Used by the “Spawn At Last Position” feature for re-joiners.
 /// </summary>
 internal static class PlayerPositionManager
 {
-    #region Private Fields
+    private const string LogPrefix = "[PositionManager]";
 
-    private static readonly Dictionary<string, PlayerTransformData> _lastTransforms =
-        new Dictionary<string, PlayerTransformData>();
+    private static readonly Dictionary<string, PlayerTransformData> _lastTransforms = new();
 
-    private const string LogPrefix = "[PositionManager] ";
-
-    #endregion
-
-    #region Public API
+    #region Public API -------------------------------------------------------------------------
 
     /// <summary>
     /// Records the latest ALIVE position for <paramref name="player"/>.
-    /// This is ignored if a death-head position is already stored for the player,
-    /// as the death position takes precedence for respawning.
+    /// Ignored if a death-head position is already stored – that takes precedence.
     /// </summary>
-    /// <param name="player">The player whose position is being updated.</param>
-    /// <param name="position">The player's current world position.</param>
-    /// <param name="rotation">The player's current world rotation.</param>
     public static void UpdatePlayerPosition(Player player, in Vector3 position, in Quaternion rotation)
     {
-        if (!player.TryGetValidUserId(out var userId))
-        {
-            return;
-        }
+        if (!player.TryGetValidUserId(out var userId)) return;
 
-        // If a death-head transform is already stored, skip the update.
-        if (_lastTransforms.TryGetValue(userId, out var existingTransform) && existingTransform.IsDeathHeadPosition)
+        if (_lastTransforms.TryGetValue(userId, out var existing) && existing.IsDeathHeadPosition)
         {
             LatePlugin.Log.LogDebug(
-                $"{LogPrefix}Skipping normal position update for {player.NickName}; death position already tracked."
-            );
+                $"{LogPrefix} Skipping normal position update for {player.NickName}; death position already tracked.");
             return;
         }
 
-        _lastTransforms[userId] = new PlayerTransformData(position, rotation, isDeathHead: false);
+        _lastTransforms[userId] = new(position, rotation, isDeathHead: false);
+
         LatePlugin.Log.LogInfo(
-            $"{LogPrefix}Updated ALIVE position for '{player.NickName}' (ID: {userId}) to {position}"
-        );
+            $"{LogPrefix} Updated ALIVE position for '{player.NickName}' (ID: {userId}) to {position}");
     }
 
     /// <summary>
-    /// Records the DEATH-HEAD position for <paramref name="player"/>.
-    /// This always overwrites any previous entry for the player, as the death
-    /// position is considered more definitive for respawn purposes.
+    /// Records the DEATH-HEAD position for <paramref name="player"/>. Always overwrites.
     /// </summary>
-    /// <param name="player">The player whose death position is being recorded.</param>
-    /// <param name="position">The world position of the player's death head.</param>
-    /// <param name="rotation">The world rotation of the player's death head.</param>
     public static void UpdatePlayerDeathPosition(Player player, in Vector3 position, in Quaternion rotation)
     {
-        if (!player.TryGetValidUserId(out var userId))
-        {
-            return;
-        }
+        if (!player.TryGetValidUserId(out var userId)) return;
 
-        _lastTransforms[userId] = new PlayerTransformData(position, rotation, isDeathHead: true);
+        _lastTransforms[userId] = new(position, rotation, isDeathHead: true);
+
         LatePlugin.Log.LogInfo(
-            $"{LogPrefix}Updated DEATH position for '{player.NickName}' (ID: {userId}) to {position}"
-        );
+            $"{LogPrefix} Updated DEATH position for '{player.NickName}' (ID: {userId}) to {position}");
     }
 
-    /// <summary>
-    /// Attempts to fetch the last stored transform (either alive or death head) for <paramref name="player"/>.
-    /// </summary>
-    /// <param name="player">The player whose transform to retrieve.</param>
-    /// <param name="transformData">
-    /// When this method returns, contains the <see cref="PlayerTransformData"/>
-    /// for the specified player, if found; otherwise, the default value.
-    /// </param>
-    /// <returns>True if a transform was found for the player; otherwise, false.</returns>
+    /// <summary>Attempts to fetch the last stored transform for <paramref name="player"/>.</summary>
     public static bool TryGetLastTransform(Player player, out PlayerTransformData transformData)
     {
         transformData = default;
-        if (player.TryGetValidUserId(out var userId))
-        {
-            return _lastTransforms.TryGetValue(userId, out transformData);
-        }
-        return false;
+        return player.TryGetValidUserId(out var userId) &&
+               _lastTransforms.TryGetValue(userId, out transformData);
     }
 
-    /// <summary>
-    /// Removes any stored transform for <paramref name="player"/> (e.g., upon revival or if state needs reset).
-    /// </summary>
-    /// <param name="player">The player whose position record to clear.</param>
+    /// <summary>Removes any stored transform for <paramref name="player"/>.</summary>
     public static void ClearPlayerPositionRecord(Player player)
     {
-        if (!player.TryGetValidUserId(out var userId))
-        {
-            return;
-        }
+        if (!player.TryGetValidUserId(out var userId)) return;
 
         if (_lastTransforms.Remove(userId))
-        {
             LatePlugin.Log.LogInfo(
-                $"{LogPrefix}Cleared position record for '{player.NickName}' (ID: {userId})."
-            );
-        }
+                $"{LogPrefix} Cleared position record for '{player.NickName}' (ID: {userId}).");
     }
 
-    /// <summary>
-    /// Clears every stored transform. This is typically called when a new level is loaded
-    /// to ensure no stale data persists across scenes.
-    /// </summary>
+    /// <summary>Clears every stored transform (called on level load).</summary>
     public static void ResetPositions()
     {
         _lastTransforms.Clear();
-        LatePlugin.Log.LogInfo($"{LogPrefix}Reset all tracked player positions for new level.");
+        LatePlugin.Log.LogInfo($"{LogPrefix} Reset all tracked player positions for new level.");
     }
+
     #endregion
 }

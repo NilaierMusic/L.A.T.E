@@ -8,7 +8,7 @@ namespace LATE.DataModels; // File-scoped namespace
 /// An immutable data structure holding a player's last known position and rotation,
 /// and whether this position represents their death location.
 /// </summary>
-internal readonly struct PlayerTransformData
+internal readonly struct PlayerTransformData : IEquatable<PlayerTransformData>
 {
     /// <summary>
     /// Gets the last known position of the player.
@@ -37,5 +37,25 @@ internal readonly struct PlayerTransformData
         Position = position;
         Rotation = rotation;
         IsDeathHeadPosition = isDeathHead;
+    }
+
+    public bool Equals(PlayerTransformData other) =>
+        Position.Equals(other.Position) &&
+        Rotation.Equals(other.Rotation) &&
+        IsDeathHeadPosition == other.IsDeathHeadPosition;
+
+    public override bool Equals(object? obj) =>
+        obj is PlayerTransformData other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        unchecked // overflow is fine
+        {
+            int hash = 17;
+            hash = hash * 23 + Position.GetHashCode();
+            hash = hash * 23 + Rotation.GetHashCode();
+            hash = hash * 23 + IsDeathHeadPosition.GetHashCode();
+            return hash;
+        }
     }
 }

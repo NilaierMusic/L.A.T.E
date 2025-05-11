@@ -1,125 +1,113 @@
 // File: L.A.T.E/Patches/CoreGame/GameDirectorPatches.cs
 using HarmonyLib;
-using LATE.Core; // For LatePlugin.Log, CoroutineHelper
-using LATE.Managers.GameState; // For GameVersionSupport
-using LATE.Utilities; // For GameUtilities (IsModLogicActive), PhotonUtilities (IsRealMasterClient)
+
 using Photon.Pun;
-using UnityEngine; // Added: For Coroutine type
-using LATE.Config; // For ConfigManager
 
-namespace LATE.Patches.CoreGame; // File-scoped namespace
+using UnityEngine;                // Coroutine
 
-/// <summary>
-/// Contains Harmony patches for the GameDirector class.
-/// </summary>
+using LATE.Config;                // ConfigManager
+using LATE.Core;                  // LatePlugin.Log, CoroutineHelper
+using LATE.Managers.GameState;    // GameVersionSupport
+using LATE.Utilities;             // GameUtilities, PhotonUtilities
+
+namespace LATE.Patches.CoreGame;
+
+/// <summary>Harmony patches for <see cref="GameDirector"/>.</summary>
 [HarmonyPatch]
 internal static class GameDirectorPatches
 {
+    private const string LogPrefix = "[GameDirectorPatches.SetStart_Postfix]";
+
+    /* ------------------------------------------------------------------------------------- */
+    /*  SetStart POSTFIX                                                                    */
+    /* ------------------------------------------------------------------------------------- */
+
     [HarmonyPriority(Priority.Last)]
     [HarmonyPatch(typeof(GameDirector), nameof(GameDirector.SetStart))]
     [HarmonyPostfix]
-    static void GameDirector_SetStart_Postfix(GameDirector __instance)
+    private static void GameDirector_SetStart_Postfix(GameDirector __instance)
     {
-        if (!PhotonUtilities.IsRealMasterClient())
-        {
-            return;
-        }
+        if (!PhotonUtilities.IsRealMasterClient()) return;
 
-        if (!GameUtilities.IsModLogicActive())
-        {
-            LatePlugin.Log.LogInfo(
-                "[GameDirectorPatches.SetStart_Postfix] Mod logic is inactive for this scene. " +
-                $"Flag _shouldOpenLobbyAfterGen is: {RunManagerPatches.GetShouldOpenLobbyAfterGen()}. Proceeding with standard logic."
-            );
-        }
+        bool shouldOpenLobby = RunManagerPatches.GetShouldOpenLobbyAfterGen();
+        bool initialPhaseDone = RunManagerPatches.GetInitialPublicListingPhaseComplete();
+        bool keepPublicCfg = ConfigManager.KeepPublicLobbyListed.Value;
+        bool inRoom = PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null;
+        bool isModLogicActive = GameUtilities.IsModLogicActive();
+
+        if (!isModLogicActive)
+            LatePlugin.Log.LogInfo($"{LogPrefix} Mod logic inactive for this scene. Proceeding with standard logic.");
 
         LatePlugin.Log.LogInfo(
-            $"[GameDirectorPatches.SetStart_Postfix] GameDirector state set to Start. " +
-            $"ShouldOpenLobbyFlag: {RunManagerPatches.GetShouldOpenLobbyAfterGen()}, " +
-            $"KeepPublicListedCfg: {ConfigManager.KeepPublicLobbyListed.Value}, " +
-            $"InitialPhaseComplete: {RunManagerPatches.GetInitialPublicListingPhaseComplete()}."
-        );
+            $"{LogPrefix} State → Start | ShouldOpenLobby: {shouldOpenLobby} | " +
+            $"KeepPublicCfg: {keepPublicCfg} | InitialPhaseComplete: {initialPhaseDone}");
 
-        if (RunManagerPatches.GetShouldOpenLobbyAfterGen()) // If the current scene *allows* late joining
-        {
-            bool isCurrentlyPublicPhase = !RunManagerPatches.GetInitialPublicListingPhaseComplete();
-            // Lobby is visible if KeepPublicLobbyListed is true OR if it's still in the initial public phase.
-            bool makeVisibleAndPublic = ConfigManager.KeepPublicLobbyListed.Value || isCurrentlyPublicPhase;
+        if (shouldOpenLobby)
+            ExecuteOpenLobbyPath(inRoom, keepPublicCfg, initialPhaseDone);
+        else
+            ExecuteKeepClosedPath(inRoom);
 
-            LatePlugin.Log.LogInfo(
-                $"[GameDirectorPatches.SetStart_Postfix] Decided to make lobby Open. " +
-                $"Effective Visibility/Public: {makeVisibleAndPublic} (Config: {ConfigManager.KeepPublicLobbyListed.Value}, InitialPhase: {isCurrentlyPublicPhase})"
-            );
-
-            if (PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null)
-            {
-                PhotonNetwork.CurrentRoom.IsOpen = true; // Always open if late joining is allowed for scene
-                PhotonNetwork.CurrentRoom.IsVisible = makeVisibleAndPublic;
-                LatePlugin.Log.LogDebug(
-                    $"[GameDirectorPatches.SetStart_Postfix] Photon Room IsOpen set to true. IsVisible set to {makeVisibleAndPublic}."
-                );
-            }
-            else
-            {
-                LatePlugin.Log.LogWarning(
-                    "[GameDirectorPatches.SetStart_Postfix] Cannot open/show Photon room: Not in room or CurrentRoom is null."
-                );
-            }
-
-            // Unlock Steam lobby. 'makeVisibleAndPublic' determines if it's public or private+joinable.
-            GameVersionSupport.UnlockSteamLobby(makeVisibleAndPublic);
-            LatePlugin.Log.LogDebug(
-                $"[GameDirectorPatches.SetStart_Postfix] Steam lobby unlock attempted (public: {makeVisibleAndPublic})."
-            );
-
-            RunManagerPatches.SetNormalUnlockLogicExecuted(true);
-            LatePlugin.Log.LogInfo($"[L.A.T.E.] Normal lobby 'open/visibility set' sequence completed successfully.");
-
-            // Disarm failsafe
-            Coroutine? failsafeCoroutine = RunManagerPatches.GetLobbyUnlockFailsafeCoroutine();
-            if (failsafeCoroutine != null && CoroutineHelper.CoroutineRunner != null)
-            {
-                CoroutineHelper.CoroutineRunner.StopCoroutine(failsafeCoroutine);
-                RunManagerPatches.SetLobbyUnlockFailsafeCoroutine(null);
-                LatePlugin.Log.LogDebug("[L.A.T.E. Failsafe] Disarmed by successful normal logic.");
-            }
-        }
-        else // _shouldOpenLobbyAfterGen was FALSE (scene does not allow late joining)
-        {
-            LatePlugin.Log.LogInfo(
-                "[GameDirectorPatches.SetStart_Postfix] Flag is FALSE. Ensuring lobby remains closed/locked/hidden."
-            );
-
-            if (PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null)
-            {
-                PhotonNetwork.CurrentRoom.IsOpen = false;
-                PhotonNetwork.CurrentRoom.IsVisible = false;
-                LatePlugin.Log.LogDebug(
-                   "[GameDirectorPatches.SetStart_Postfix] Photon Room confirmed IsOpen=false and IsVisible=false."
-               );
-            }
-            GameVersionSupport.LockSteamLobby();
-            LatePlugin.Log.LogDebug(
-               "[GameDirectorPatches.SetStart_Postfix] Steam lobby lock confirmed."
-           );
-
-            RunManagerPatches.SetNormalUnlockLogicExecuted(true);
-            LatePlugin.Log.LogInfo("[L.A.T.E.] Normal lobby 'keep closed/hidden' sequence completed.");
-
-            Coroutine? failsafeCoroutine = RunManagerPatches.GetLobbyUnlockFailsafeCoroutine();
-            if (failsafeCoroutine != null && CoroutineHelper.CoroutineRunner != null)
-            {
-                CoroutineHelper.CoroutineRunner.StopCoroutine(failsafeCoroutine);
-                RunManagerPatches.SetLobbyUnlockFailsafeCoroutine(null);
-                LatePlugin.Log.LogDebug("[L.A.T.E. Failsafe] Disarmed by 'keep closed' logic.");
-            }
-        }
-
-        // Reset _shouldOpenLobbyAfterGen for the next level transition.
-        // _normalUnlockLogicExecuted is reset at the start of ChangeLevelHook.
+        // Reset flag for next level transition
         RunManagerPatches.SetShouldOpenLobbyAfterGen(false);
-        LatePlugin.Log.LogDebug(
-            $"[GameDirectorPatches.SetStart_Postfix] Reset _shouldOpenLobbyAfterGen flag to false for next cycle."
-        );
+        LatePlugin.Log.LogDebug($"{LogPrefix} Reset _shouldOpenLobbyAfterGen flag for next cycle.");
+    }
+
+    /* ------------------------------------------------------------------------------------- */
+    /*  Helpers                                                                              */
+    /* ------------------------------------------------------------------------------------- */
+
+    private static void ExecuteOpenLobbyPath(bool inRoom, bool keepPublicCfg, bool initialPhaseDone)
+    {
+        bool makeVisible = keepPublicCfg || !initialPhaseDone;
+        LatePlugin.Log.LogInfo($"{LogPrefix} Decided to OPEN lobby (Visible: {makeVisible}).");
+
+        if (inRoom)
+        {
+            PhotonNetwork.CurrentRoom.IsOpen = true;
+            PhotonNetwork.CurrentRoom.IsVisible = makeVisible;
+            LatePlugin.Log.LogDebug($"{LogPrefix} Photon room IsOpen=true, IsVisible={makeVisible}.");
+        }
+        else
+        {
+            LatePlugin.Log.LogWarning($"{LogPrefix} Cannot open/visibilise Photon room: not in room.");
+        }
+
+        GameVersionSupport.UnlockSteamLobby(makeVisible);
+        LatePlugin.Log.LogDebug($"{LogPrefix} Steam lobby unlock attempted (public: {makeVisible}).");
+
+        FinishNormalLogic("[L.A.T.E.] Normal lobby 'open/visibility set' sequence completed successfully.",
+                          "[L.A.T.E. Failsafe] Disarmed by successful normal logic.");
+    }
+
+    private static void ExecuteKeepClosedPath(bool inRoom)
+    {
+        LatePlugin.Log.LogInfo($"{LogPrefix} Flag FALSE → keeping lobby CLOSED/hidden.");
+
+        if (inRoom)
+        {
+            PhotonNetwork.CurrentRoom.IsOpen = false;
+            PhotonNetwork.CurrentRoom.IsVisible = false;
+            LatePlugin.Log.LogDebug($"{LogPrefix} Photon room IsOpen=false, IsVisible=false.");
+        }
+
+        GameVersionSupport.LockSteamLobby();
+        LatePlugin.Log.LogDebug($"{LogPrefix} Steam lobby locked.");
+
+        FinishNormalLogic("[L.A.T.E.] Normal lobby 'keep closed/hidden' sequence completed.",
+                          "[L.A.T.E. Failsafe] Disarmed by 'keep closed' logic.");
+    }
+
+    private static void FinishNormalLogic(string successMsg, string disarmMsg)
+    {
+        RunManagerPatches.SetNormalUnlockLogicExecuted(true);
+        LatePlugin.Log.LogInfo(successMsg);
+
+        Coroutine? failsafe = RunManagerPatches.GetLobbyUnlockFailsafeCoroutine();
+        if (failsafe != null && CoroutineHelper.CoroutineRunner != null)
+        {
+            CoroutineHelper.CoroutineRunner.StopCoroutine(failsafe);
+            RunManagerPatches.SetLobbyUnlockFailsafeCoroutine(null);
+            LatePlugin.Log.LogDebug(disarmMsg);
+        }
     }
 }

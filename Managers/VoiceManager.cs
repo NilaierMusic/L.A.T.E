@@ -1,216 +1,187 @@
 ﻿// File: L.A.T.E/Managers/VoiceManager.cs
-using Photon.Pun;
-using Photon.Realtime;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using UnityEngine;
-using LATE.Core; // For LatePlugin.Log, CoroutineHelper
-using LATE.Utilities; // For ReflectionCache, PhotonUtilities, GameUtilities
 
-namespace LATE.Managers; // File-scoped namespace
+using Photon.Pun;
+using Photon.Realtime;
+
+using UnityEngine;
+
+using LATE.Core;        // LatePlugin.Log, CoroutineHelper
+using LATE.Utilities;   // ReflectionCache, PhotonUtilities, GameUtilities
+
+namespace LATE.Managers;
 
 /// <summary>
-/// Manages voice chat synchronization, particularly for players joining late
-/// or when voice chat state needs refreshing.
+/// Manages voice-chat synchronisation, especially for late-joiners or whenever a
+/// refresh is required.
 /// </summary>
 internal static class VoiceManager
 {
-    #region Private Fields
-    private static readonly Dictionary<int, bool> _previousVoiceChatFetchedStates = new Dictionary<int, bool>();
-    private static bool _syncScheduled = false;
-    #endregion
+    private const string LogPrefix = "[VoiceManager]";
 
-    #region Public Methods
-    public static void HandleAvatarUpdate(PlayerAvatar playerAvatar)
+    // Key: AvatarPV ViewID  →  value: last known voiceChatFetched state
+    private static readonly Dictionary<int, bool> _previousVoiceChatFetchedStates = new();
+
+    private static bool _syncScheduled;
+
+    #region Public API -------------------------------------------------------------------------
+
+    public static void HandleAvatarUpdate(PlayerAvatar avatar)
     {
-        if (playerAvatar == null) return;
-        PhotonView? pv = PhotonUtilities.GetPhotonView(playerAvatar);
+        if (avatar == null) return;
+
+        PhotonView? pv = PhotonUtilities.GetPhotonView(avatar);
         if (pv == null) return;
 
-        int viewId = pv.ViewID;
-        bool currentVoiceFetched = false;
+        int viewID = pv.ViewID;
+        bool voiceFetchedNow = GetVoiceFetchedFlag(avatar, viewID);
 
-        try
+        if (PhotonUtilities.IsRealMasterClient() && voiceFetchedNow &&
+            !_previousVoiceChatFetchedStates.GetValueOrDefault(viewID))
         {
-            if (ReflectionCache.PlayerAvatar_VoiceChatFetchedField != null)
-            {
-                currentVoiceFetched = (bool)ReflectionCache.PlayerAvatar_VoiceChatFetchedField.GetValue(playerAvatar);
-            }
-            else
-            {
-                // Logged by ReflectionCache if critical
-                return;
-            }
-        }
-        catch (Exception ex)
-        {
-            LatePlugin.Log.LogError($"[VoiceManager] Error reflecting voiceChatFetched for {viewId}: {ex}");
-            return;
+            string playerName = pv.Owner?.NickName ?? $"ActorNr {pv.OwnerActorNr}";
+            LatePlugin.Log.LogInfo($"{LogPrefix} Host detected voiceChatFetched TRUE for {playerName} ({viewID}).");
+
+            if (!_syncScheduled)
+                TryScheduleSync($"Player {playerName} ready");
         }
 
-        _previousVoiceChatFetchedStates.TryGetValue(viewId, out bool previousVoiceFetched);
-
-        if (PhotonUtilities.IsRealMasterClient())
-        {
-            if (currentVoiceFetched && !previousVoiceFetched)
-            {
-                string playerName = pv.Owner?.NickName ?? $"ActorNr {pv.OwnerActorNr}";
-                LatePlugin.Log.LogInfo($"[VoiceManager] Host detected voiceChatFetched TRUE for {playerName} ({viewId}).");
-
-                if (!_syncScheduled)
-                {
-                    if (CoroutineHelper.CoroutineRunner != null)
-                    {
-                        if (PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom.PlayerCount > 1 && GameDirector.instance != null && !SemiFunc.RunIsLobbyMenu())
-                        {
-                            TriggerDelayedSync($"Player {playerName} ready");
-                        }
-                        // else: Logged by TriggerDelayedSync if conditions not met for scheduling
-                    }
-                    else
-                    {
-                        LatePlugin.Log.LogError("[VoiceManager] Cannot schedule voice sync: CoroutineHelper.CoroutineRunner is null!");
-                    }
-                }
-                // else: Logged by TriggerDelayedSync if already scheduled
-            }
-        }
-        _previousVoiceChatFetchedStates[viewId] = currentVoiceFetched;
+        _previousVoiceChatFetchedStates[viewID] = voiceFetchedNow;
     }
 
-    public static void TriggerDelayedSync(string reason, float delay = 1.5f)
-    {
-        if (_syncScheduled)
-        {
-            LatePlugin.Log.LogInfo($"[VoiceManager] Voice sync already scheduled, ignoring trigger: {reason}");
-            return;
-        }
-
-        if (CoroutineHelper.CoroutineRunner != null)
-        {
-            LatePlugin.Log.LogInfo($"[VoiceManager] Scheduling delayed voice sync (Trigger: {reason}, Delay: {delay}s)...");
-            CoroutineHelper.CoroutineRunner.StartCoroutine(DelayedVoiceSync(reason, delay));
-            _syncScheduled = true;
-        }
-        else
-        {
-            LatePlugin.Log.LogError("[VoiceManager] Cannot schedule voice sync: CoroutineHelper.CoroutineRunner is null!");
-        }
-    }
+    public static void TriggerDelayedSync(string reason, float delay = 1.5f) =>
+        TryScheduleSync(reason, delay);
 
     public static void HandlePlayerLeft(Player leftPlayer)
     {
         if (leftPlayer == null)
         {
-            LatePlugin.Log.LogWarning("[VoiceManager] HandlePlayerLeft called with null player.");
+            LatePlugin.Log.LogWarning($"{LogPrefix} HandlePlayerLeft called with null player.");
             return;
         }
 
-        LatePlugin.Log.LogInfo($"[VoiceManager] Cleaning up voice state for leaving player: {leftPlayer.NickName} ({leftPlayer.ActorNumber})");
-        int viewIdToRemove = -1;
-        PlayerAvatar? avatarToRemove = GameUtilities.FindPlayerAvatar(leftPlayer);
-        if (avatarToRemove != null)
-        {
-            PhotonView? pv = PhotonUtilities.GetPhotonView(avatarToRemove);
-            if (pv != null) viewIdToRemove = pv.ViewID;
-        }
+        LatePlugin.Log.LogInfo($"{LogPrefix} Cleaning up voice state for leaving player: {leftPlayer.NickName} ({leftPlayer.ActorNumber})");
 
-        if (viewIdToRemove != -1)
-        {
-            if (_previousVoiceChatFetchedStates.Remove(viewIdToRemove))
-            {
-                LatePlugin.Log.LogInfo($"[VoiceManager] Removed ViewID {viewIdToRemove} from voice state tracking.");
-            }
-        }
-        // else: No warning if avatar/PV not found, player is gone.
+        PhotonView? pv = PhotonUtilities.GetPhotonView(GameUtilities.FindPlayerAvatar(leftPlayer));
+        if (pv != null && _previousVoiceChatFetchedStates.Remove(pv.ViewID))
+            LatePlugin.Log.LogInfo($"{LogPrefix} Removed ViewID {pv.ViewID} from voice state tracking.");
     }
+
     #endregion
 
-    #region Private Methods
-    private static IEnumerator DelayedVoiceSync(string triggerReason, float delay = 1.5f)
+
+    #region Private helpers --------------------------------------------------------------------
+
+    private static bool GetVoiceFetchedFlag(PlayerAvatar avatar, int viewID)
+    {
+        try
+        {
+            if (ReflectionCache.PlayerAvatar_VoiceChatFetchedField is not null)
+                return (bool)ReflectionCache.PlayerAvatar_VoiceChatFetchedField.GetValue(avatar);
+        }
+        catch (Exception ex)
+        {
+            LatePlugin.Log.LogError($"{LogPrefix} Error reflecting voiceChatFetched for {viewID}: {ex}");
+        }
+        return false;
+    }
+
+    private static void TryScheduleSync(string reason, float delay = 1.5f)
+    {
+        if (_syncScheduled)
+        {
+            LatePlugin.Log.LogInfo($"{LogPrefix} Voice sync already scheduled, ignoring trigger: {reason}");
+            return;
+        }
+
+        if (CoroutineHelper.CoroutineRunner == null)
+        {
+            LatePlugin.Log.LogError($"{LogPrefix} Cannot schedule voice sync: CoroutineHelper.CoroutineRunner is null!");
+            return;
+        }
+
+        if (!PhotonNetwork.InRoom || PhotonNetwork.CurrentRoom.PlayerCount <= 1 ||
+            GameDirector.instance == null || SemiFunc.RunIsLobbyMenu())
+        {
+            LatePlugin.Log.LogInfo($"{LogPrefix} Skipping voice-sync scheduling – game state not suitable.");
+            return;
+        }
+
+        LatePlugin.Log.LogInfo($"{LogPrefix} Scheduling delayed voice sync (Trigger: {reason}, Delay: {delay}s)...");
+        CoroutineHelper.CoroutineRunner.StartCoroutine(DelayedVoiceSync(reason, delay));
+        _syncScheduled = true;
+    }
+
+    private static IEnumerator DelayedVoiceSync(string triggerReason, float delay)
     {
         yield return new WaitForSeconds(delay);
-        LatePlugin.Log.LogInfo($"[VoiceManager] Executing delayed voice sync (Trigger: {triggerReason}, Delay: {delay}s).");
+        LatePlugin.Log.LogInfo($"{LogPrefix} Executing delayed voice sync (Trigger: {triggerReason}, Delay: {delay}s).");
         _syncScheduled = false;
 
+        // Validate host/game state once more
         if (!PhotonUtilities.IsRealMasterClient())
         {
-            LatePlugin.Log.LogWarning("[VoiceManager] No longer MasterClient. Aborting voice sync.");
+            LatePlugin.Log.LogWarning($"{LogPrefix} No longer MasterClient. Aborting voice sync.");
             yield break;
         }
-        if (!PhotonNetwork.InRoom || PhotonNetwork.CurrentRoom.PlayerCount <= 1 || GameDirector.instance == null || SemiFunc.RunIsLobbyMenu())
+        if (!PhotonNetwork.InRoom || PhotonNetwork.CurrentRoom.PlayerCount <= 1 ||
+            GameDirector.instance == null || SemiFunc.RunIsLobbyMenu())
         {
-            LatePlugin.Log.LogWarning("[VoiceManager] Skipping voice sync: Conditions not met or game state invalid.");
+            LatePlugin.Log.LogWarning($"{LogPrefix} Skipping voice sync: Conditions not met or game state invalid.");
             yield break;
         }
 
         try
         {
-            List<PlayerAvatar>? playerAvatars = GameDirector.instance?.PlayerList;
-            if (playerAvatars == null)
-            {
-                LatePlugin.Log.LogError("[VoiceManager] PlayerList null for voice sync.");
-                yield break;
-            }
+            List<PlayerAvatar> avatars = new(GameDirector.instance.PlayerList ?? new());
+            LatePlugin.Log.LogInfo($"{LogPrefix} Syncing voice for {avatars.Count} players.");
 
-            LatePlugin.Log.LogInfo($"[VoiceManager] Syncing voice for {playerAvatars.Count} players in list.");
-            List<PlayerAvatar> playersToSync = new List<PlayerAvatar>(playerAvatars); // Iterate a copy
-
-            foreach (PlayerAvatar player in playersToSync)
+            foreach (var avatar in avatars)
             {
-                PhotonView? playerPV = PhotonUtilities.GetPhotonView(player);
-                if (player == null || playerPV == null)
+                PhotonView? avatarPV = PhotonUtilities.GetPhotonView(avatar);
+                if (avatar == null || avatarPV == null)
                 {
-                    LatePlugin.Log.LogWarning("[VoiceManager] Null player or PhotonView found during sync. Skipping.");
+                    LatePlugin.Log.LogWarning($"{LogPrefix} Null avatar or PhotonView during sync. Skipping.");
                     continue;
                 }
 
-                bool isVoiceFetched = false;
-                PlayerVoiceChat? voiceChat = null;
+                bool isFetched = false;
+                PlayerVoiceChat? voice = null;
+
                 try
                 {
-                    if (ReflectionCache.PlayerAvatar_VoiceChatFetchedField != null)
-                    {
-                        isVoiceFetched = (bool)ReflectionCache.PlayerAvatar_VoiceChatFetchedField.GetValue(player);
-                    }
-                    if (ReflectionCache.PlayerAvatar_VoiceChatField != null)
-                    {
-                        voiceChat = ReflectionCache.PlayerAvatar_VoiceChatField.GetValue(player) as PlayerVoiceChat;
-                    }
+                    if (ReflectionCache.PlayerAvatar_VoiceChatFetchedField is not null)
+                        isFetched = (bool)ReflectionCache.PlayerAvatar_VoiceChatFetchedField.GetValue(avatar);
+
+                    if (ReflectionCache.PlayerAvatar_VoiceChatField is not null)
+                        voice = ReflectionCache.PlayerAvatar_VoiceChatField.GetValue(avatar) as PlayerVoiceChat;
                 }
                 catch (Exception ex)
                 {
-                    LatePlugin.Log.LogError($"[VoiceManager] Error reflecting voice state for sync on player {playerPV.ViewID}: {ex}");
+                    LatePlugin.Log.LogError($"{LogPrefix} Error reflecting voice state for avatar {avatarPV.ViewID}: {ex}");
                     continue;
                 }
 
-                if (isVoiceFetched && voiceChat != null)
-                {
-                    PhotonView? voiceChatPV = voiceChat.GetComponent<PhotonView>(); // VoiceChat itself should have a PV
-                    if (voiceChatPV != null)
-                    {
-                        int voiceChatViewID = voiceChatPV.ViewID;
-                        string playerName = playerPV.Owner?.NickName ?? $"ActorNr {playerPV.OwnerActorNr}";
-                        // LatePlugin.Log.LogInfo($"[VoiceManager] Syncing {playerName} (AvatarPV: {playerPV.ViewID}, VoiceChatPV: {voiceChatViewID}).");
+                if (!isFetched || voice == null) continue;
 
-                        if (PhotonUtilities.GetPhotonView(player) != null) // Re-check avatar PV
-                        {
-                            playerPV.RPC("UpdateMyPlayerVoiceChat", RpcTarget.AllBuffered, voiceChatViewID);
-                        }
-                        // else: Player might have despawned mid-sync
-                    }
-                    // else: PlayerVoiceChat component missing PhotonView
-                }
-                // else: Voice not fetched or PlayerVoiceChat component null
+                PhotonView voicePV = voice.GetComponent<PhotonView>();
+                if (voicePV == null) continue;
+
+                int voiceViewID = voicePV.ViewID;
+                if (PhotonUtilities.GetPhotonView(avatar) != null)
+                    avatarPV.RPC("UpdateMyPlayerVoiceChat", RpcTarget.AllBuffered, voiceViewID);
             }
-            LatePlugin.Log.LogInfo("[VoiceManager] Delayed voice sync completed.");
+
+            LatePlugin.Log.LogInfo($"{LogPrefix} Delayed voice sync completed.");
         }
         catch (Exception ex)
         {
-            LatePlugin.Log.LogError($"[VoiceManager] Error during voice sync execution: {ex}");
-            _syncScheduled = false; // Ensure flag is reset on error
+            LatePlugin.Log.LogError($"{LogPrefix} Error during voice sync execution: {ex}");
+            _syncScheduled = false; // make sure flag resets on failure
         }
     }
+
     #endregion
 }

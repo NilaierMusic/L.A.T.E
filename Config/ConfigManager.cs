@@ -1,190 +1,189 @@
 ﻿// File: L.A.T.E/Config/ConfigManager.cs
+using System.Reflection;
+
 using BepInEx.Configuration;
 using BepInEx.Logging;
-using System.Reflection;
-using LATE.Core; // For LatePlugin.Log
-using LATE.Managers.GameState; // For GameVersionSupport
-using Photon.Pun;
-using LATE.Patches.CoreGame;  // For RunManagerPatches state access
-using LATE.Utilities;       // For PhotonUtilities, GameUtilities
 
-namespace LATE.Config; // File-scoped namespace
+using Photon.Pun;
+
+using LATE.Core;               // LatePlugin.Log
+using LATE.Managers.GameState; // GameVersionSupport
+using LATE.Patches.CoreGame;   // RunManagerPatches
+using LATE.Utilities;          // PhotonUtilities
+
+namespace LATE.Config;
 
 /// <summary>
-/// Manages the plugin's configuration settings, loading them from the BepInEx config file.
+/// Central place for every BepInEx config entry used by the mod.
+/// •  Entries are grouped in nested static classes (General, LateJoin, …)  
+/// •  Legacy flat aliases are kept at the bottom so existing call-sites still compile.
 /// </summary>
 internal static class ConfigManager
 {
-    #region Section Constants
-
-    private const string SectionGeneral = "General";
-    private const string SectionLateJoinBehavior = "Late Join Behavior";
-    private const string SectionLobbyVisibility = "Lobby Visibility"; // New section
-    private const string SectionAdvanced = "Advanced (Use With Caution)";
-    private const string SectionDebug = "Debugging";
-
-    #endregion
-
-    #region Public Config Entries
-
-    // General Options
-    internal static ConfigEntry<bool> AllowInShop { get; private set; } = null!;
-    internal static ConfigEntry<bool> AllowInTruck { get; private set; } = null!;
-    internal static ConfigEntry<bool> AllowInLevel { get; private set; } = null!;
-    internal static ConfigEntry<bool> AllowInArena { get; private set; } = null!;
-
-    // Late-Join Behavior
-    internal static ConfigEntry<bool> KillIfPreviouslyDead { get; private set; } = null!;
-    internal static ConfigEntry<bool> SpawnAtLastPosition { get; private set; } = null!;
-    internal static ConfigEntry<bool> LockLobbyOnLevelGenerationFailure { get; private set; } = null!;
-
-    // Lobby Visibility
-    internal static ConfigEntry<bool> KeepPublicLobbyListed { get; private set; } = null!;
-
-    // Advanced Options
-    internal static ConfigEntry<bool> ForceReloadOnLateJoin { get; private set; } = null!;
-
-    // Debug Options
-    internal static ConfigEntry<LogLevel> ModLogLevel { get; private set; } = null!;
-
-    #endregion
-
-    #region Private Helpers
+    /* ───────── helpers ───────── */
 
     private static ManualLogSource Log => LatePlugin.Log;
 
-    #endregion
+    private static ConfigEntry<bool> Bool(ConfigFile cfg, string section, string key, bool def, string desc) =>
+        cfg.Bind(section, key, def, desc);
 
-    #region Public Initialization
+    private static ConfigEntry<TEnum> Enum<TEnum>(ConfigFile cfg, string section, string key, TEnum def, string desc)
+        where TEnum : struct, Enum =>
+        cfg.Bind(section, key, def, desc);
 
-    /// <summary>
-    /// Initializes the configuration by binding all settings to the provided BepInEx ConfigFile.
-    /// This should be called once from the plugin’s Awake() method.
-    /// </summary>
-    /// <param name="cfg">The BepInEx ConfigFile instance.</param>
-    internal static void Initialize(ConfigFile cfg)
+    /* ───────── General ───────── */
+
+    internal static class General
     {
-        Log.LogDebug("[Config] Binding entries...");
+        public static ConfigEntry<bool> AllowInShop { get; private set; } = null!;
+        public static ConfigEntry<bool> AllowInTruck { get; private set; } = null!;
+        public static ConfigEntry<bool> AllowInLevel { get; private set; } = null!;
+        public static ConfigEntry<bool> AllowInArena { get; private set; } = null!;
 
-        // General
-        AllowInShop = Bind(cfg, SectionGeneral, "Allow in shop", true, "Allow players to join while the host is in the shop.");
-        AllowInTruck = Bind(cfg, SectionGeneral, "Allow in truck", true, "Allow players to join while the host is in the truck.");
-        AllowInLevel = Bind(cfg, SectionGeneral, "Allow in level", true, "Allow players to join while the host is in an active level.");
-        AllowInArena = Bind(cfg, SectionGeneral, "Allow in arena", true, "Allow players to join while the host is in the arena.");
-
-        // Late-Join Behavior
-        KillIfPreviouslyDead = Bind(cfg, SectionLateJoinBehavior, "Kill If Previously Dead", true, "Automatically kill late-joining players who already died in the same level.");
-        SpawnAtLastPosition = Bind(cfg, SectionLateJoinBehavior, "Spawn At Last Position", true, "Spawn re-joining players at their last known position (or death head).");
-        LockLobbyOnLevelGenerationFailure = Bind(cfg, SectionLateJoinBehavior, "Lock Lobby On Level Generation Failure", true,
-            "Controls if the lobby is automatically locked if a level (especially modded) reports a generation failure.\n" +
-            "Vanilla levels rarely fail, but modded ones might sometimes report failure even if they load.\n" +
-            "Set to 'false' to keep the lobby open based on scene type, even on reported failure (unless it's a real crash to Arena).\n" +
-            "Default: true (locks lobby on non-Arena failure).");
-
-        // Lobby Visibility
-        KeepPublicLobbyListed = Bind(cfg, SectionLobbyVisibility, "Keep Public Lobby Listed After Lobby Menu", true,
-            "If true (default), the lobby will always try to be publicly listed when late-joining is allowed by other settings.\n" +
-            "If false, the lobby is only publicly listed during the initial Lobby Menu session. After the first game starts, it becomes invite-only (still joinable via invites if late-joining is allowed for the current scene, but not in public server lists).");
-
-        // Advanced
-        ForceReloadOnLateJoin = Bind(cfg, SectionAdvanced, "Force Level Reload on Late Join", false, "!! HIGHLY DISRUPTIVE !! Forces the host to reload the level for EVERYONE when a player joins late.");
-
-        // Debugging
-        ModLogLevel = cfg.Bind(
-            SectionDebug,
-            "Log Level",
-            LogLevel.Info,
-            "Minimum log level for L.A.T.E.\n"
-          + "Change on the fly to reduce spam or get more detail.\n"
-          + "Values: Fatal, Error, Warning, Message, Info, Debug, All, None"
-        );
-
-        // Apply current value and react to future edits.
-        ApplyLogLevel(ModLogLevel.Value);
-        ModLogLevel.SettingChanged += (_, __) => ApplyLogLevel(ModLogLevel.Value);
-        KeepPublicLobbyListed.SettingChanged += OnKeepPublicLobbyListedChanged; // Attach event handler
-
-
-        Log.LogDebug("[Config] All entries bound");
+        internal static void Bind(ConfigFile cfg)
+        {
+            const string S = nameof(General);
+            AllowInShop = Bool(cfg, S, "Allow in shop", true, "Allow players to join while the host is in the shop.");
+            AllowInTruck = Bool(cfg, S, "Allow in truck", true, "Allow players to join while the host is in the truck.");
+            AllowInLevel = Bool(cfg, S, "Allow in level", true, "Allow players to join while the host is in an active level.");
+            AllowInArena = Bool(cfg, S, "Allow in arena", true, "Allow players to join while the host is in the arena.");
+        }
     }
 
-    #endregion
+    /* ───────── Late-join behaviour ───────── */
 
-    #region Config Event Handler
-
-    private static void OnKeepPublicLobbyListedChanged(object? sender, EventArgs e)
+    internal static class LateJoin
     {
-        LatePlugin.Log.LogInfo($"[Config] Runtime: KeepPublicLobbyListed changed to: {KeepPublicLobbyListed.Value}");
+        public static ConfigEntry<bool> KillIfPreviouslyDead { get; private set; } = null!;
+        public static ConfigEntry<bool> SpawnAtLastPosition { get; private set; } = null!;
+        public static ConfigEntry<bool> LockLobbyOnLevelGenFail { get; private set; } = null!;
 
-        if (!PhotonUtilities.IsRealMasterClient() || !PhotonNetwork.InRoom || PhotonNetwork.CurrentRoom == null)
+        internal static void Bind(ConfigFile cfg)
         {
-            LatePlugin.Log.LogDebug("[Config] Live update skipped: Not master or not in room/CurrentRoom is null.");
-            return;
+            const string S = "Late Join Behaviour";
+            KillIfPreviouslyDead = Bool(cfg, S, "Kill if previously dead", true,
+                "Automatically kill late-joiners who already died in the same level.");
+            SpawnAtLastPosition = Bool(cfg, S, "Spawn at last position", true,
+                "Spawn re-joining players at their last known position (or death head).");
+            LockLobbyOnLevelGenFail = Bool(cfg, S, "Lock lobby on level generation failure", true,
+                "If true, lobby locks when a level reports generation failure.");
+        }
+    }
+
+    /* ───────── Lobby visibility ───────── */
+
+    internal static class Lobby
+    {
+        public static ConfigEntry<bool> KeepPublicListed { get; private set; } = null!;
+
+        internal static void Bind(ConfigFile cfg)
+        {
+            const string S = nameof(Lobby);
+            KeepPublicListed = Bool(cfg, S, "Keep public lobby listed", true,
+                "If true (default) the lobby stays publicly listed when late-joining is allowed.");
+
+            KeepPublicListed.SettingChanged += OnVisibilityChanged;
         }
 
-        // Check if the game is in a state where the lobby *should* be open/considered for listing
-        if (RunManagerPatches.GetShouldOpenLobbyAfterGen())
+        private static void OnVisibilityChanged(object? _, EventArgs __)
         {
-            bool isCurrentlyPublicPhase = !RunManagerPatches.GetInitialPublicListingPhaseComplete();
-            bool makeVisibleAndPublic = KeepPublicLobbyListed.Value || isCurrentlyPublicPhase;
+            Log.LogInfo($"[Config] Runtime: KeepPublicLobbyListed changed to {KeepPublicListed.Value}");
 
-            LatePlugin.Log.LogInfo(
-                $"[Config] Applying KeepPublicLobbyListed change live. Current Public Phase: {isCurrentlyPublicPhase}, Effective Visibility/Public: {makeVisibleAndPublic}"
-            );
+            if (!PhotonUtilities.IsRealMasterClient() || !PhotonNetwork.InRoom || PhotonNetwork.CurrentRoom == null)
+                return;
 
-            // Only change IsVisible if the room is already Open.
-            // If IsOpen is false, IsVisible being true is meaningless and might be misleading.
-            // GameDirectorPatches will handle setting IsOpen and IsVisible correctly when the lobby state is next evaluated.
-            // Here, we only adjust IsVisible if the lobby is *already meant to be open*.
+            if (!RunManagerPatches.GetShouldOpenLobbyAfterGen()) return;
+
+            bool publicPhase = !RunManagerPatches.GetInitialPublicListingPhaseComplete();
+            bool makeVisible = KeepPublicListed.Value || publicPhase;
+
             if (PhotonNetwork.CurrentRoom.IsOpen)
-            {
-                PhotonNetwork.CurrentRoom.IsVisible = makeVisibleAndPublic;
-                LatePlugin.Log.LogDebug($"[Config] Live update: Photon IsVisible set to {PhotonNetwork.CurrentRoom.IsVisible} (IsOpen was true).");
-            }
-            else
-            {
-                LatePlugin.Log.LogDebug($"[Config] Live update: Photon IsOpen is false. IsVisible not changed by live config update (will be set by GameDirectorPatches).");
-            }
+                PhotonNetwork.CurrentRoom.IsVisible = makeVisible;
 
-            // The Steam lobby unlock should also reflect the desired public/private state.
-            GameVersionSupport.UnlockSteamLobby(makeVisibleAndPublic);
-            LatePlugin.Log.LogDebug($"[Config] Live update: Steam lobby {(makeVisibleAndPublic ? "unlocked publicly" : "unlocked as joinable but private/friends")}.");
-        }
-        else
-        {
-            LatePlugin.Log.LogDebug("[Config] Live update skipped: Lobby is not in a state where it should be open/listed right now (_shouldOpenLobbyAfterGen is false).");
+            GameVersionSupport.UnlockSteamLobby(makeVisible);
         }
     }
 
-    #endregion
+    /* ───────── Advanced / Debug ───────── */
 
-    #region Internal Helpers
-
-    private static ConfigEntry<T> Bind<T>(ConfigFile cfg, string section, string key, T defaultValue, string description)
+    internal static class Advanced
     {
-        return cfg.Bind(section, key, defaultValue, description);
+        public static ConfigEntry<bool> ForceReloadOnLateJoin { get; private set; } = null!;
+
+        internal static void Bind(ConfigFile cfg)
+        {
+            const string S = nameof(Advanced);
+            ForceReloadOnLateJoin = Bool(cfg, S, "Force level reload on late join", false,
+                "!! HIGHLY DISRUPTIVE !! Forces a full level reload when someone joins late.");
+        }
     }
 
-    /// <summary>
-    /// Sets the internal log filter level even on older BepInEx builds
-    /// that don’t expose a public <c>Level</c> property.
-    /// </summary>
-    private static void ApplyLogLevel(LogLevel newLevel)
+    internal static class Debug
     {
-        var levelProperty = typeof(ManualLogSource).GetProperty("Level", BindingFlags.Instance | BindingFlags.Public);
-        if (levelProperty != null && levelProperty.CanWrite)
+        public static ConfigEntry<LogLevel> LogLevelEntry { get; private set; } = null!;
+
+        internal static void Bind(ConfigFile cfg)
         {
-            levelProperty.SetValue(Log, newLevel);
+            const string S = nameof(Debug);
+            LogLevelEntry = Enum(cfg, S, "Log level", LogLevel.Info,
+                "Minimum log level for L.A.T.E.  Values: Fatal, Error, Warning, Message, Info, Debug, All, None");
+
+            ApplyLogLevel(LogLevelEntry.Value);
+            LogLevelEntry.SettingChanged += (_, __) => ApplyLogLevel(LogLevelEntry.Value);
         }
-        else
-        {
-            var levelField = typeof(ManualLogSource).GetField("level", BindingFlags.Instance | BindingFlags.NonPublic);
-            if (levelField != null)
-            {
-                levelField.SetValue(Log, newLevel);
-            }
-        }
-        Log.LogInfo($"[Config] Runtime log level set to <{newLevel}>");
     }
+
+    /* ───────── Initialise all groups ───────── */
+
+    internal static void Initialize(ConfigFile cfg)   // kept original name
+    {
+        Log.LogDebug("[Config] Binding entries …");
+
+        General.Bind(cfg);
+        LateJoin.Bind(cfg);
+        Lobby.Bind(cfg);
+        Advanced.Bind(cfg);
+        Debug.Bind(cfg);
+
+        Log.LogDebug("[Config] All entries bound.");
+    }
+
+    /* ───────── helper: apply log-level ───────── */
+
+    private static void ApplyLogLevel(LogLevel level)
+    {
+        var prop = typeof(ManualLogSource).GetProperty("Level", BindingFlags.Instance | BindingFlags.Public);
+        if (prop?.CanWrite == true) prop.SetValue(Log, level);
+        else typeof(ManualLogSource)
+             .GetField("level", BindingFlags.Instance | BindingFlags.NonPublic)?
+             .SetValue(Log, level);
+
+        Log.LogInfo($"[Config] Runtime log level set to <{level}>");
+    }
+
+    /* ───────── Legacy flat aliases (back-compat) ───────── */
+
+    #region Legacy-Aliases
+
+    // General
+    internal static ConfigEntry<bool> AllowInShop => General.AllowInShop;
+    internal static ConfigEntry<bool> AllowInTruck => General.AllowInTruck;
+    internal static ConfigEntry<bool> AllowInLevel => General.AllowInLevel;
+    internal static ConfigEntry<bool> AllowInArena => General.AllowInArena;
+
+    // Late-join
+    internal static ConfigEntry<bool> KillIfPreviouslyDead => LateJoin.KillIfPreviouslyDead;
+    internal static ConfigEntry<bool> SpawnAtLastPosition => LateJoin.SpawnAtLastPosition;
+    internal static ConfigEntry<bool> LockLobbyOnLevelGenerationFailure => LateJoin.LockLobbyOnLevelGenFail;
+
+    // Lobby
+    internal static ConfigEntry<bool> KeepPublicLobbyListed => Lobby.KeepPublicListed;
+
+    // Advanced
+    internal static ConfigEntry<bool> ForceReloadOnLateJoin => Advanced.ForceReloadOnLateJoin;
+
+    // Debug
+    internal static ConfigEntry<LogLevel> ModLogLevel => Debug.LogLevelEntry;
+
     #endregion
 }
