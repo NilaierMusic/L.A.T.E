@@ -85,20 +85,16 @@ internal static class PlayerAvatarPatches
         PhotonView? pv = PhotonUtilities.GetPhotonView(__instance);
         if (pv == null || __instance == null)
         {
-            LatePlugin.Log.LogError("[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] Instance or PhotonView is null. Cannot determine sender.");
+            LatePlugin.Log.LogError("[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] Instance or PhotonView is null.");
             return true;
         }
-
-        // Fully qualify Photon.Realtime.Player.
         Photon.Realtime.Player sender = pv.Owner;
         if (sender == null)
         {
-            LatePlugin.Log.LogError($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] PhotonView Owner is null for Avatar PV {pv.ViewID}. Cannot determine sender.");
+            LatePlugin.Log.LogError($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] PhotonView Owner is null for Avatar PV {pv.ViewID}.");
             return true;
         }
-
-        if (sender.IsLocal)
-            return true;
+        if (sender.IsLocal) return true;
 
         int actorNr = sender.ActorNumber;
         string nickname = sender.NickName ?? $"ActorNr {actorNr}";
@@ -109,18 +105,28 @@ internal static class PlayerAvatarPatches
             return true;
         }
 
-        if (LateJoinManager.IsPlayerNeedingSync(actorNr))
+        // Check if this player is awaiting their *initial* L.A.T.E. sync trigger
+        if (LateJoinManager.IsPlayerNeedingInitialSync(actorNr))
         {
             LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] Received LoadingLevelAnimationCompletedRPC from late-joiner {nickname} (ActorNr: {actorNr}).");
 
             if (!GameUtilities.IsModLogicActive())
             {
-                LatePlugin.Log.LogWarning($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] Mod logic INACTIVE. Clearing sync need for {nickname} but not syncing.");
-                LateJoinManager.ClearPlayerTracking(actorNr);
+                LatePlugin.Log.LogWarning($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] Mod logic INACTIVE. Clearing sync need for {nickname} but not performing L.A.T.E. sync.");
+                LateJoinManager.ClearPlayerTracking(actorNr); // Clears from all L.A.T.E. tracking
                 return true;
             }
 
-            LateJoinManager.MarkPlayerSyncTriggeredAndClearNeed(actorNr);
+            // Mark that the initial sync is now being triggered for this player.
+            LateJoinManager.MarkInitialSyncTriggered(actorNr);
+
+            // Now, verify they are still considered an "active late joiner" for the full process.
+            // This check is a safeguard; they should be if IsPlayerNeedingInitialSync was true and they weren't cleared.
+            if (!LateJoinManager.IsPlayerAnActiveLateJoiner(actorNr))
+            {
+                LatePlugin.Log.LogWarning($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] {nickname} was needing initial sync, but is no longer in _activeLateJoinersThisScene. L.A.T.E. sync aborted. Might have left or scene changed.");
+                return true;
+            }
 
             if (ConfigManager.ForceReloadOnLateJoin.Value)
             {
@@ -128,25 +134,22 @@ internal static class PlayerAvatarPatches
                 if (RunManager.instance != null)
                 {
                     _reloadHasBeenTriggeredThisScene = true;
-                    LatePlugin.Log.LogInfo("[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] Setting reload-triggered flag for this scene.");
                     RunManager.instance.RestartScene();
-                    return false;
+                    return false; // Prevent original RPC if we are reloading
                 }
                 else
                 {
-                    LatePlugin.Log.LogError($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] FAILED TO FORCE RELOAD: RunManager.instance is null for {nickname}.");
-                    LateJoinManager.ClearPlayerTracking(actorNr);
-                    return true;
+                    LatePlugin.Log.LogError($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] FAILED TO FORCE RELOAD: RunManager.instance is null for {nickname}. Proceeding with L.A.T.E. sync.");
+                    LateJoinManager.SyncAllStateForPlayer(sender, __instance);
                 }
             }
             else
             {
-                LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] Initiating standard late-join sync for {nickname}.");
+                LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] Initiating L.A.T.E. full sync process for {nickname}.");
                 LateJoinManager.SyncAllStateForPlayer(sender, __instance);
-                return true;
             }
         }
-        return true;
+        return true; // Allow original RPC to proceed unless we forced a reload
     }
 
     #endregion

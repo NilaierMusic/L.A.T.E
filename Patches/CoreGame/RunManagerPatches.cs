@@ -90,11 +90,12 @@ internal static class RunManagerPatches
         DestructionManager.ResetState();
         PlayerStateManager.ResetPlayerStatuses();
         PlayerPositionManager.ResetPositions();
+        VoiceManager.ResetAllPerSceneStates();
 
-        _normalUnlockLogicExecuted = false; // GameDirectorPatches will flip this to TRUE later.
+        _normalUnlockLogicExecuted = false;
 
         /* --- Config sanity-check ------------------------------------------ */
-        if (ConfigManager.AllowInShop == null) // simple “config bound?” check
+        if (ConfigManager.AllowInShop == null)
         {
             LatePlugin.Log.LogError($"{LogPrefix} Config not initialised – keeping lobby CLOSED.");
             CloseLobbyHard();
@@ -113,19 +114,17 @@ internal static class RunManagerPatches
             $"{LogPrefix} Host changing level | Completed:{completedLevel} Failed:{levelFailed} Type:{changeType} " +
             $"| PreLevel:'{self.levelCurrent?.name ?? "None"}'");
 
-        /* --- Clear Photon cache for current scene objects ---------------- */
-        if (PhotonNetwork.InRoom)
+        /* --- Perform Network Cleanup *before* we run vanilla ChangeLevel --- */
+        if (PhotonNetwork.InRoom && PhotonNetwork.IsMasterClient)
         {
-            foreach (PhotonView pv in UnityObject.FindObjectsOfType<PhotonView>())
-                if (pv != null && pv.gameObject.scene.buildIndex != -1)
-                    PhotonUtilities.ClearPhotonCache(pv);
+            CacheCleanupManager.StartThrottledCleanup();
         }
 
         /* --- Execute vanilla method (updates levelCurrent) --------------- */
         orig(self, completedLevel, levelFailed, changeType);
 
         /* --- Determine desired lobby state for the NEW scene ------------- */
-        bool modLogicActive = GameUtilities.IsModLogicActive();  // now uses updated levelCurrent
+        bool modLogicActive = GameUtilities.IsModLogicActive();
 
         if (!modLogicActive)
         {

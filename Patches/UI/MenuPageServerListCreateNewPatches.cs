@@ -15,7 +15,7 @@ internal static class MenuPageServerListCreateNewPatches
     /*───────────────────────────────────────────────────────────────────────────*/
     /*  ButtonConfirm – PREFIX                                                  */
     /*───────────────────────────────────────────────────────────────────────────*/
-
+    /*
     [HarmonyPatch(typeof(MenuPageServerListCreateNew), nameof(MenuPageServerListCreateNew.ButtonConfirm))]
     [HarmonyPrefix]
     private static void ButtonConfirm_Prefix()
@@ -23,5 +23,5 @@ internal static class MenuPageServerListCreateNewPatches
         // Starting a fresh public game → reset listing-phase flag
         RunManagerPatches.SetInitialPublicListingPhaseComplete(false);
         LatePlugin.Log.LogInfo($"{LogPrefix} Reset initial public-listing phase for new custom public game.");
-    }
+    }*/
 }

@@ -8,6 +8,10 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+	<Exec Command="&quot;$(ProjectDir)run-update-copy.cmd&quot;" />
+  </Target>
+
   <ItemGroup>
     <Reference Include="0Harmony">
       <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\REPO\BepInEx\core\0Harmony.dll</HintPath>

@@ -41,6 +41,8 @@ x86/
 [Ww][Ii][Nn]32/
 [Aa][Rr][Mm]/
 [Aa][Rr][Mm]64/
+# Ignore release output folder
+release/
 
 #########################
 # 📦  NuGet / packages  #
@@ -131,6 +133,8 @@ _NCrunch_*
 *crunch*.local.xml
 node_modules/
 *.code-workspace
+*.ps1
+*.cmd
 .fake/
 .paket/
 paket-files/

@@ -27,12 +27,12 @@ internal static class MenuPageMainPatches
     /*───────────────────────────────────────────────────────────────────────────*/
     /*  ButtonEventPlayRandom – PREFIX                                          */
     /*───────────────────────────────────────────────────────────────────────────*/
-
+    /*
     [HarmonyPatch(typeof(MenuPageMain), nameof(MenuPageMain.ButtonEventPlayRandom))]
     [HarmonyPrefix]
     private static void ButtonEventPlayRandom_Prefix()
     {
         RunManagerPatches.SetInitialPublicListingPhaseComplete(false);
         LatePlugin.Log.LogInfo($"{LogPrefix} Reset initial public-listing phase (PlayRandom).");
-    }
+    }*/
 }

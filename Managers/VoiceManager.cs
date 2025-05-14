@@ -31,42 +31,52 @@ internal static class VoiceManager
     public static void HandleAvatarUpdate(PlayerAvatar avatar)
     {
         if (avatar == null) return;
-
         PhotonView? pv = PhotonUtilities.GetPhotonView(avatar);
         if (pv == null) return;
+        Player? owner = pv.Owner;
+        if (owner == null) return;
 
-        int viewID = pv.ViewID;
-        bool voiceFetchedNow = GetVoiceFetchedFlag(avatar, viewID);
+        int avatarViewID = pv.ViewID;
+        int actorNumber = owner.ActorNumber;
+        bool voiceFetchedNow = GetVoiceFetchedFlag(avatar, avatarViewID);
 
-        if (PhotonUtilities.IsRealMasterClient() && voiceFetchedNow &&
-            !_previousVoiceChatFetchedStates.GetValueOrDefault(viewID))
+        // Schedule a general sync if a late joiner (pending voice task) becomes ready.
+        // The coroutine will iterate and find all such players.
+        if (PhotonUtilities.IsRealMasterClient() &&
+            LateJoinManager.IsLateJoinerPendingAsyncTask(actorNumber, LateJoinManager.LateJoinTaskType.Voice) &&
+            voiceFetchedNow &&
+            !_previousVoiceChatFetchedStates.GetValueOrDefault(avatarViewID))
         {
-            string playerName = pv.Owner?.NickName ?? $"ActorNr {pv.OwnerActorNr}";
-            LatePlugin.Log.LogInfo($"{LogPrefix} Host detected voiceChatFetched TRUE for {playerName} ({viewID}).");
-
-            if (!_syncScheduled)
-                TryScheduleSync($"Player {playerName} ready");
+            string playerName = owner.NickName ?? $"ActorNr {actorNumber}";
+            LatePlugin.Log.LogInfo($"{LogPrefix} Host detected voiceChatFetched TRUE for LATE JOINER {playerName} (Avatar ViewID: {avatarViewID}) who needs voice sync. Scheduling general voice sync.");
+            TryScheduleSync($"Late joiner {playerName} voice component ready");
         }
-
-        _previousVoiceChatFetchedStates[viewID] = voiceFetchedNow;
+        _previousVoiceChatFetchedStates[avatarViewID] = voiceFetchedNow;
     }
 
-    public static void TriggerDelayedSync(string reason, float delay = 1.5f) =>
-        TryScheduleSync(reason, delay);
+    // TriggerDelayedSync is kept for potential other uses, but primary scheduling for late joiners
+    // will now happen via HandleAvatarUpdate detecting readiness of a player pending the voice task.
+    public static void TriggerDelayedSync(string reason, float delay = 1.5f) => TryScheduleSync(reason, delay);
+
 
     public static void HandlePlayerLeft(Player leftPlayer)
     {
-        if (leftPlayer == null)
-        {
-            LatePlugin.Log.LogWarning($"{LogPrefix} HandlePlayerLeft called with null player.");
-            return;
-        }
-
-        LatePlugin.Log.LogInfo($"{LogPrefix} Cleaning up voice state for leaving player: {leftPlayer.NickName} ({leftPlayer.ActorNumber})");
-
-        PhotonView? pv = PhotonUtilities.GetPhotonView(GameUtilities.FindPlayerAvatar(leftPlayer));
+        if (leftPlayer == null) return;
+        // LateJoinManager.ClearPlayerTracking handles removing them from L.A.T.E. pending tasks.
+        // We just need to clean up our avatar-instance specific state.
+        PlayerAvatar? avatar = GameUtilities.FindPlayerAvatar(leftPlayer);
+        PhotonView? pv = PhotonUtilities.GetPhotonView(avatar);
         if (pv != null && _previousVoiceChatFetchedStates.Remove(pv.ViewID))
-            LatePlugin.Log.LogInfo($"{LogPrefix} Removed ViewID {pv.ViewID} from voice state tracking.");
+        {
+            LatePlugin.Log.LogInfo($"{LogPrefix} Removed Avatar ViewID {pv.ViewID} from _previousVoiceChatFetchedStates for leaving player {leftPlayer.NickName}.");
+        }
+    }
+
+    public static void ResetAllPerSceneStates() // Renamed for clarity
+    {
+        LatePlugin.Log.LogDebug($"{LogPrefix} Clearing _previousVoiceChatFetchedStates (per-avatar-instance tracking).");
+        _previousVoiceChatFetchedStates.Clear();
+        // _syncScheduled logic will handle itself or be reset by TryScheduleSync.
     }
 
     #endregion
@@ -135,20 +145,35 @@ internal static class VoiceManager
 
         try
         {
-            List<PlayerAvatar> avatars = new(GameDirector.instance.PlayerList ?? new());
-            LatePlugin.Log.LogInfo($"{LogPrefix} Syncing voice for {avatars.Count} players.");
+            int successfullySyncedCount = 0;
+            // Iterate through all players in the room to find those pending the L.A.T.E. voice task
+            if (PhotonNetwork.CurrentRoom == null) yield break;
 
-            foreach (var avatar in avatars)
+            // Create a list of players to iterate to avoid issues if collection changes
+            var playersInRoom = PhotonNetwork.CurrentRoom.Players.Values.ToList();
+
+            foreach (Player player in playersInRoom)
             {
+                if (player == null) continue;
+                int actorNumber = player.ActorNumber;
+
+                // Check if this player is an active late joiner AND specifically pending the voice task
+                if (!LateJoinManager.IsLateJoinerPendingAsyncTask(actorNumber, LateJoinManager.LateJoinTaskType.Voice))
+                {
+                    continue; // Not a late joiner for L.A.T.E. sync or voice task already done/not assigned
+                }
+
+                PlayerAvatar? avatar = GameUtilities.FindPlayerAvatar(player);
                 PhotonView? avatarPV = PhotonUtilities.GetPhotonView(avatar);
+
                 if (avatar == null || avatarPV == null)
                 {
-                    LatePlugin.Log.LogWarning($"{LogPrefix} Null avatar or PhotonView during sync. Skipping.");
+                    LatePlugin.Log.LogWarning($"{LogPrefix} Null avatar or PV for player {player.NickName} (ActorNr {actorNumber}) pending voice sync. Will retry if another sync is triggered.");
                     continue;
                 }
 
-                bool isFetched = false;
-                PlayerVoiceChat? voice = null;
+                bool isFetched = GetVoiceFetchedFlag(avatar, avatarPV.ViewID);
+                PlayerVoiceChat? voice = null; PhotonView? voicePV = null;
 
                 try
                 {
@@ -164,14 +189,19 @@ internal static class VoiceManager
                     continue;
                 }
 
-                if (!isFetched || voice == null) continue;
-
-                PhotonView voicePV = voice.GetComponent<PhotonView>();
-                if (voicePV == null) continue;
+                if (!isFetched || voice == null || voicePV == null)
+                {
+                    LatePlugin.Log.LogDebug($"{LogPrefix} Late joiner {player.NickName} (ActorNr {actorNumber}) pending voice sync but not yet ready (fetched: {isFetched}, voiceComp: {voice != null}, voicePV: {voicePV != null}).");
+                    continue;
+                }
 
                 int voiceViewID = voicePV.ViewID;
-                if (PhotonUtilities.GetPhotonView(avatar) != null)
-                    avatarPV.RPC("UpdateMyPlayerVoiceChat", RpcTarget.AllBuffered, voiceViewID);
+                avatarPV.RPC("UpdateMyPlayerVoiceChat", RpcTarget.AllBuffered, voiceViewID);
+
+                // Report completion to LateJoinManager
+                LateJoinManager.ReportLateJoinAsyncTaskCompleted(actorNumber, LateJoinManager.LateJoinTaskType.Voice);
+                // Log for voice sync itself is now handled by ReportLateJoinAsyncTaskCompleted or its callers.
+                successfullySyncedCount++;
             }
 
             LatePlugin.Log.LogInfo($"{LogPrefix} Delayed voice sync completed.");

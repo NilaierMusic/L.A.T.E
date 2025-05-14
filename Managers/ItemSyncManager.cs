@@ -414,6 +414,7 @@ internal static class ItemSyncManager
             yield break;
         }
 
+        int targetActorNr = targetPlayer.ActorNumber;
         string targetNickname = targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
         string epName = epToSync.name;
         Log.LogInfo($"[ItemSyncManager][EPItemResync] Starting for {targetNickname} in EP '{epName}'.");
@@ -422,6 +423,12 @@ internal static class ItemSyncManager
         if (PhotonNetwork.CurrentRoom == null || !PhotonNetwork.CurrentRoom.Players.ContainsKey(targetPlayer.ActorNumber))
         {
             Log.LogWarning($"[ItemSyncManager][EPItemResync] Player {targetNickname} left room before resync could start. Aborting.");
+            yield break;
+        }
+
+        if (!LateJoinManager.IsLateJoinerPendingAsyncTask(targetActorNr, LateJoinManager.LateJoinTaskType.ExtractionPointItems))
+        {
+            Log.LogWarning($"[ItemSyncManager][EPItemResync] Player {targetPlayer.NickName} is not an active late joiner pending EP resync. Aborting coroutine.");
             yield break;
         }
 
@@ -540,7 +547,8 @@ internal static class ItemSyncManager
                 Log.LogWarning($"[ItemSyncManager][EPItemResync] Could not find original transform for item with ViewID {viewID} ('{pgo.gameObject.name}'). Cannot teleport back.");
             }
         }
-        Log.LogInfo($"[ItemSyncManager][EPItemResync] Finished item resync sequence for {targetNickname} in EP '{epName}'.");
+        Log.LogInfo($"[ItemSyncManager][EPItemResync] Finished item resync sequence for {targetNickname} in EP '{epName}'. Reporting completion.");
+        LateJoinManager.ReportLateJoinAsyncTaskCompleted(targetActorNr, LateJoinManager.LateJoinTaskType.ExtractionPointItems);
     }
     #endregion
 }

@@ -52,6 +52,7 @@ internal static class ReflectionCache
     internal static readonly FieldInfo? RunManager_LobbyJoinField = F<RunManager>("lobbyJoin");
     internal static readonly FieldInfo? RunManager_WaitToChangeSceneField = F<RunManager>("waitToChangeScene");
     internal static readonly FieldInfo? RunManager_GameOverField = F<RunManager>("gameOver");
+    internal static readonly FieldInfo? RunManager_VoiceChatsField = F<RunManager>("voiceChats");
 
     /* ───────────────────────  RunManagerPUN  ────────────────────── */
 
@@ -69,6 +70,7 @@ internal static class ReflectionCache
     internal static readonly FieldInfo? PlayerAvatar_DeadSetField = F<PlayerAvatar>("deadSet");
     internal static readonly FieldInfo? PlayerAvatar_PlayerDeathHeadField = F<PlayerAvatar>("playerDeathHead");
     internal static readonly FieldInfo? PlayerAvatar_PhysGrabberField = F<PlayerAvatar>("physGrabber");
+    internal static readonly FieldInfo? PlayerAvatar_IsLocalField = F<PlayerAvatar>("isLocal");
 
     /* ───────────────────────  PlayerDeathHead  ──────────────────── */
 
@@ -153,7 +155,7 @@ internal static class ReflectionCache
 
     internal static readonly FieldInfo? ShopManager_ShoppingListField = F<ShopManager>("shoppingList");
 
-    /* ───────────────────────  Module / Arena / Misc  ────────────── */
+    /* ───────────────────────  Module ────────────── */
 
     internal static readonly FieldInfo? Module_SetupDoneField = F<Module>("SetupDone");
     internal static readonly FieldInfo? Module_ConnectingTopField = F<Module>("ConnectingTop");
@@ -161,6 +163,12 @@ internal static class ReflectionCache
     internal static readonly FieldInfo? Module_ConnectingRightField = F<Module>("ConnectingRight");
     internal static readonly FieldInfo? Module_ConnectingLeftField = F<Module>("ConnectingLeft");
     internal static readonly FieldInfo? Module_FirstField = F<Module>("First");
+
+    /* ───────────────────────  LevelGenerator  ─────────────────── */
+
+    internal static readonly FieldInfo? LevelGenerator_LevelParentField = F<LevelGenerator>("LevelParent");
+
+    /* ───────────────────────  Arena  ─────────────────── */
 
     internal static readonly FieldInfo? Arena_WinnerPlayerField = F<Arena>("winnerPlayer");
     internal static readonly FieldInfo? Arena_PhotonViewField = F<Arena>("photonView");
