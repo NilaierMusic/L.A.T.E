@@ -219,9 +219,17 @@ internal static class LevelSyncManager
             return;
         }
 
+        PhotonView? roundDirectorPv = PhotonUtilities.GetPhotonView(RoundDirector.instance);
+        if (roundDirectorPv == null)
+        {
+            Log.LogError("[LevelSyncManager][EPSync] RoundDirector PhotonView not found. Critical for activating EP. Aborting for this player.");
+            return;
+        }
+
         Log.LogInfo($"[LevelSyncManager][EPSync] Host EP Status for {targetNickname} - Active: {isAnyEpActiveOnHost}, Current EP: '{currentActiveEpOnHost?.name ?? "None"}', Surplus: {hostSurplus}");
 
         PhotonView? firstEpPvForGlobalUnlock = null;
+
         if (allExtractionPoints != null)
         {
             foreach (ExtractionPoint ep in allExtractionPoints)
@@ -238,28 +246,65 @@ internal static class LevelSyncManager
                     ExtractionPoint.State hostState = ReflectionCache.ExtractionPoint_CurrentStateField.GetValue(ep) as ExtractionPoint.State? ?? ExtractionPoint.State.Idle;
                     bool isThisTheShopEP = ReflectionCache.ExtractionPoint_IsShopField.GetValue(ep) as bool? ?? false;
 
-                    pv.RPC("StateSetRPC", targetPlayer, hostState);
-                    pv.RPC("ExtractionPointSurplusRPC", targetPlayer, hostSurplus);
-
-                    if (isAnyEpActiveOnHost && currentActiveEpOnHost != null && !isThisTheShopEP)
+                    if (isAnyEpActiveOnHost && currentActiveEpOnHost != null && ep == currentActiveEpOnHost && !isThisTheShopEP)
                     {
-                        if (ep == currentActiveEpOnHost)
+                        // This is the Active EP on the host.
+                        Log.LogInfo($"[LevelSyncManager][EPSync] Processing ACTIVE EP '{ep.name}' for {targetPlayer.NickName}.");
+
+                        // Step 1: Trigger the official activation path via RoundDirector.
+                        // This sets RoundDirector flags and calls ButtonPress() on the EP.
+                        // ButtonPress() should call StateSet(State.Active) if the EP is Idle (which it is on join).
+                        Log.LogInfo($"[LevelSyncManager][EPSync] Sending 'ExtractionPointActivateRPC' (via RoundDirector) for EP '{ep.name}' (ViewID: {pv.ViewID}) to {targetPlayer.NickName}.");
+                        roundDirectorPv.RPC("ExtractionPointActivateRPC", targetPlayer, pv.ViewID);
+
+                        // Step 2: Send the authoritative HaulGoalSetRPC.
+                        // This corrects the haul goal after StateActive() might have set a preliminary one.
+                        bool hostGoalFetched = ReflectionCache.ExtractionPoint_HaulGoalFetchedField.GetValue(ep) as bool? ?? false;
+                        if (hostGoalFetched && ep.haulGoal > 0)
                         {
-                            bool hostGoalFetched = ReflectionCache.ExtractionPoint_HaulGoalFetchedField.GetValue(ep) as bool? ?? false;
-                            if (hostGoalFetched && ep.haulGoal > 0)
-                            {
-                                pv.RPC("HaulGoalSetRPC", targetPlayer, ep.haulGoal);
-                            }
+                            Log.LogInfo($"[LevelSyncManager][EPSync] Sending 'HaulGoalSetRPC' for active EP '{ep.name}' to {targetPlayer.NickName} with goal {ep.haulGoal}.");
+                            pv.RPC("HaulGoalSetRPC", targetPlayer, ep.haulGoal);
                         }
-                        else if (hostState == ExtractionPoint.State.Idle) // Deny other idle EPs if one is active
+                        else
                         {
+                            if (!hostGoalFetched) Log.LogWarning($"[LevelSyncManager][EPSync] HaulGoal not fetched for active EP '{ep.name}'. 'HaulGoalSetRPC' not sent to {targetPlayer.NickName}.");
+                            else if (ep.haulGoal <= 0) Log.LogWarning($"[LevelSyncManager][EPSync] HaulGoal is {ep.haulGoal} for active EP '{ep.name}'. 'HaulGoalSetRPC' not sent to {targetPlayer.NickName}.");
+                        }
+
+                        // Step 3: Explicitly send StateSetRPC(State.Active) *last*.
+                        // This is a failsafe to ensure the state is definitely Active after everything else.
+                        // It might be redundant but shouldn't cause issues if StateActive() init already ran.
+                        Log.LogInfo($"[LevelSyncManager][EPSync] Explicitly sending 'StateSetRPC(Active)' for active EP '{ep.name}' to {targetPlayer.NickName}.");
+                        pv.RPC("StateSetRPC", targetPlayer, ExtractionPoint.State.Active);
+
+                        // Always sync surplus for all EPs, using the global surplus value.
+                        pv.RPC("ExtractionPointSurplusRPC", targetPlayer, hostSurplus);
+
+                    }
+                    else // This is NOT the Active EP on the host (or no EP is active)
+                    {
+                        Log.LogInfo($"[LevelSyncManager][EPSync] Processing NON-ACTIVE EP '{ep.name}' (Host State: {hostState}) for {targetPlayer.NickName}.");
+                        // Sync its actual state
+                        pv.RPC("StateSetRPC", targetPlayer, hostState);
+
+                        // Always sync surplus for all EPs.
+                        pv.RPC("ExtractionPointSurplusRPC", targetPlayer, hostSurplus);
+
+                        // If an EP *is* active elsewhere and this one is Idle, deny it.
+                        if (isAnyEpActiveOnHost && currentActiveEpOnHost != null && hostState == ExtractionPoint.State.Idle && !isThisTheShopEP)
+                        {
+                            Log.LogInfo($"[LevelSyncManager][EPSync] Denying idle EP '{ep.name}' for {targetPlayer.NickName} as another EP is active.");
                             pv.RPC("ButtonDenyRPC", targetPlayer);
+                        }
+                        else
+                        {
+                            Log.LogInfo($"[LevelSyncManager][EPSync] Not denying EP '{ep.name}'. State is {hostState}, IsShop: {isThisTheShopEP}, IsAnyEpActive: {isAnyEpActiveOnHost}.");
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    Log.LogError($"[LevelSyncManager][EPSync] RPC Error for EP '{ep.name}' for {targetNickname}: {ex}");
+                    Log.LogError($"[LevelSyncManager][EPSync] RPC Error for EP '{ep.name}' for {targetPlayer.NickName}: {ex}");
                 }
             }
         }
