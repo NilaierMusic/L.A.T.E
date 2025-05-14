@@ -23,22 +23,22 @@ internal static class PlayerAvatarPatches
     #region PlayerAvatar Patches
 
     [HarmonyPostfix]
-    [HarmonyPatch(typeof(PlayerAvatar), "Update")]
-    public static void PlayerAvatar_Update_Postfix(PlayerAvatar __instance)
+    [HarmonyPatch(typeof(PlayerAvatar), "Update")] // Or "LateUpdate" might be even safer
+    public static void PlayerAvatar_Update_Postfix_VoiceManager(PlayerAvatar __instance)
     {
-        if (!GameUtilities.IsModLogicActive())
-            return;
-
-        VoiceManager.HandleAvatarUpdate(__instance);
+        // No need to check GameUtilities.IsModLogicActive() here, VoiceManager methods do their own checks.
+        if (PhotonUtilities.IsRealMasterClient() && __instance != null)
+        {
+            VoiceManager.Host_TrySendInitialAvatarVoiceRpc(__instance);
+        }
     }
 
     [HarmonyPostfix]
     [HarmonyPatch(typeof(PlayerAvatar), "PlayerDeathRPC")]
     static void PlayerAvatar_PlayerDeathRPC_Postfix(PlayerAvatar __instance, int enemyIndex)
     {
-        if (PhotonNetwork.IsMasterClient && __instance != null && __instance.photonView != null)
+        if (PhotonUtilities.IsRealMasterClient() && __instance != null && __instance.photonView != null) // Use IsRealMasterClient
         {
-            // Fully qualify Photon.Realtime.Player.
             Photon.Realtime.Player? owner = __instance.photonView.Owner;
             if (owner != null)
             {
@@ -47,8 +47,7 @@ internal static class PlayerAvatarPatches
                 {
                     try
                     {
-                        object? deathHeadObj = ReflectionCache.PlayerAvatar_PlayerDeathHeadField.GetValue(__instance);
-                        if (deathHeadObj is PlayerDeathHead deathHead && deathHead != null && deathHead.gameObject != null)
+                        if (ReflectionCache.PlayerAvatar_PlayerDeathHeadField.GetValue(__instance) is PlayerDeathHead deathHead && deathHead != null && deathHead.gameObject != null)
                         {
                             PlayerPositionManager.UpdatePlayerDeathPosition(
                                 owner,
@@ -56,20 +55,26 @@ internal static class PlayerAvatarPatches
                                 deathHead.transform.rotation
                             );
                         }
-                        else
-                        {
-                            LatePlugin.Log.LogWarning($"[PlayerAvatarPatches] PlayerDeathHead component not found or null for {owner.NickName}.");
-                        }
+                        // else: Logged by PlayerPositionManager or not critical enough for error here
                     }
-                    catch (Exception ex)
-                    {
-                        LatePlugin.Log.LogError($"[PlayerAvatarPatches] Error reflecting PlayerDeathHead for {owner.NickName}: {ex}");
-                    }
+                    catch (System.Exception ex) { LatePlugin.Log.LogError($"[PlayerAvatarPatches] Error reflecting PlayerDeathHead for {owner.NickName}: {ex}"); }
                 }
-                else
-                {
-                    LatePlugin.Log.LogError("[PlayerAvatarPatches] PlayerDeathHead reflection field (PlayerAvatar_PlayerDeathHeadField) is null!");
-                }
+            }
+        }
+    }
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(PlayerAvatar), "ReviveRPC")]
+    static void PlayerAvatar_ReviveRPC_Postfix(PlayerAvatar __instance, bool _revivedByTruck)
+    {
+        if (PhotonUtilities.IsRealMasterClient() && __instance != null && __instance.photonView != null)
+        {
+            Photon.Realtime.Player? owner = __instance.photonView.Owner;
+            if (owner != null)
+            {
+                LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.ReviveRPC_Postfix] Player {owner.NickName} revived. Marking as ALIVE in PlayerStateManager.");
+                PlayerStateManager.MarkPlayerAlive(owner);
+                // VoiceManager.Host_OnPlayerRevived will be called by PlayerReviveEffects_Trigger_Postfix or similar external hook
             }
         }
     }
@@ -105,27 +110,21 @@ internal static class PlayerAvatarPatches
             return true;
         }
 
-        // Check if this player is awaiting their *initial* L.A.T.E. sync trigger
-        if (LateJoinManager.IsPlayerNeedingInitialSync(actorNr))
+        // CRITICAL: Only proceed with L.A.T.E. specific voice sync if this player is identified as an active late joiner.
+        if (LateJoinManager.IsPlayerAnActiveLateJoiner(actorNr))
         {
-            LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] Received LoadingLevelAnimationCompletedRPC from late-joiner {nickname} (ActorNr: {actorNr}).");
+            LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] Received LoadingLevelAnimationCompletedRPC from L.A.T.E. active late-joiner {nickname}.");
 
-            if (!GameUtilities.IsModLogicActive())
+            if (!GameUtilities.IsModLogicActive() && !SemiFunc.RunIsLobby() && !SemiFunc.RunIsShop()) // Check if we are in a scene L.A.T.E. should operate in
             {
-                LatePlugin.Log.LogWarning($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] Mod logic INACTIVE. Clearing sync need for {nickname} but not performing L.A.T.E. sync.");
-                LateJoinManager.ClearPlayerTracking(actorNr); // Clears from all L.A.T.E. tracking
+                LatePlugin.Log.LogWarning($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] Mod logic INACTIVE for current scene. Clearing L.A.T.E. tracking for {nickname} but not performing full L.A.T.E. syncs.");
+                LateJoinManager.ClearPlayerTracking(actorNr);
                 return true;
             }
 
-            // Mark that the initial sync is now being triggered for this player.
-            LateJoinManager.MarkInitialSyncTriggered(actorNr);
-
-            // Now, verify they are still considered an "active late joiner" for the full process.
-            // This check is a safeguard; they should be if IsPlayerNeedingInitialSync was true and they weren't cleared.
-            if (!LateJoinManager.IsPlayerAnActiveLateJoiner(actorNr))
+            if (LateJoinManager.IsPlayerNeedingInitialSync(actorNr))
             {
-                LatePlugin.Log.LogWarning($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] {nickname} was needing initial sync, but is no longer in _activeLateJoinersThisScene. L.A.T.E. sync aborted. Might have left or scene changed.");
-                return true;
+                LateJoinManager.MarkInitialSyncTriggered(actorNr);
             }
 
             if (ConfigManager.ForceReloadOnLateJoin.Value)
@@ -140,16 +139,22 @@ internal static class PlayerAvatarPatches
                 else
                 {
                     LatePlugin.Log.LogError($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] FAILED TO FORCE RELOAD: RunManager.instance is null for {nickname}. Proceeding with L.A.T.E. sync.");
-                    LateJoinManager.SyncAllStateForPlayer(sender, __instance);
+                    // Fall through to normal L.A.T.E. sync
                 }
             }
-            else
-            {
-                LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] Initiating L.A.T.E. full sync process for {nickname}.");
-                LateJoinManager.SyncAllStateForPlayer(sender, __instance);
-            }
+
+            LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] Initiating L.A.T.E. full sync (non-voice) for {nickname}.");
+            LateJoinManager.SyncAllStateForPlayer(sender, __instance);
+
+            // Schedule the specific voice sync for this late joiner with a delay.
+            // 3.5 to 4 seconds might be safer to ensure client-side PlayerVoiceChat.TTSinstantiatedTimer (3s) has passed.
+            VoiceManager.Host_ScheduleVoiceSyncForLateJoiner(sender, __instance, 3.5f);
         }
-        return true; // Allow original RPC to proceed unless we forced a reload
+        else
+        {
+            LatePlugin.Log.LogDebug($"[PlayerAvatarPatches.LoadingCompleteRPC_Prefix] Received LoadingCompleteRPC from {nickname}, but they are NOT currently tracked as an active L.A.T.E. late-joiner. L.A.T.E. voice sync skipped.");
+        }
+        return true;
     }
 
     #endregion

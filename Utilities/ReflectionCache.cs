@@ -72,6 +72,11 @@ internal static class ReflectionCache
     internal static readonly FieldInfo? PlayerAvatar_PhysGrabberField = F<PlayerAvatar>("physGrabber");
     internal static readonly FieldInfo? PlayerAvatar_IsLocalField = F<PlayerAvatar>("isLocal");
 
+    /* ───────────────────────  PlayerVoiceChat  ──────────────────── */
+
+    internal static readonly FieldInfo? PlayerVoiceChat_TTSinstantiatedField = F<PlayerVoiceChat>("TTSinstantiated");
+    internal static readonly FieldInfo? PlayerVoiceChat_RecordingEnabledField = F<PlayerVoiceChat>("recordingEnabled");
+
     /* ───────────────────────  PlayerDeathHead  ──────────────────── */
 
     internal static readonly FieldInfo? PlayerDeathHead_PhysGrabObjectField = F<PlayerDeathHead>("physGrabObject");

@@ -90,7 +90,7 @@ internal static class RunManagerPatches
         DestructionManager.ResetState();
         PlayerStateManager.ResetPlayerStatuses();
         PlayerPositionManager.ResetPositions();
-        VoiceManager.ResetAllPerSceneStates();
+        VoiceManager.ResetPerSceneStates();
 
         _normalUnlockLogicExecuted = false;
 

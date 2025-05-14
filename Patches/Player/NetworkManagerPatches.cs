@@ -102,7 +102,7 @@ internal static class NetworkManagerPatches
                 EnemySyncManager.NotifyEnemiesOfLeavingPlayer(otherPlayer);
             }
 
-            VoiceManager.HandlePlayerLeft(otherPlayer);
+            VoiceManager.Host_OnPlayerLeftRoom(otherPlayer);
         }
         else
         {
