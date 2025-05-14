@@ -17,7 +17,7 @@ namespace LATE.Managers;
 internal static class ItemSyncManager
 {
     private static readonly BepInEx.Logging.ManualLogSource Log = LatePlugin.Log;
-    private static readonly float ItemResyncDelaySeconds = 0.2f;
+    private const float LevelEpRpcsDelaySeconds = 0.1f;
 
     #region Interactive Item State Synchronization
     /// <summary>
@@ -385,14 +385,15 @@ internal static class ItemSyncManager
 
     #region Extraction Point Item Resynchronization
     /// <summary>
-    /// Coroutine to force late-joining clients to re-evaluate items in the
-    /// active extraction point or the shop EP by teleporting items out and then back.
-    /// This helps clients correctly register items that were already in the EP when they joined.
+    /// Coroutine to force late-joining clients to re-evaluate items contributing to the haul
+    /// for a specific extraction point by sending targeted RPCs.
+    /// This should be called AFTER the EP's state (Active, HaulGoal, etc.) has been synced.
     /// </summary>
     /// <param name="targetPlayer">The late-joining player for whom to resync EP items.</param>
-    /// <param name="epToSync">The specific <see cref="ExtractionPoint"/> whose items need resynchronization.</param>
+    /// <param name="epToSync">The specific <see cref="ExtractionPoint"/> whose item haul needs resynchronization.</param>
     internal static IEnumerator ResyncExtractionPointItems(Player targetPlayer, ExtractionPoint epToSync)
     {
+        // --- Standard Initial Checks ---
         if (targetPlayer == null)
         {
             Log.LogError("[ItemSyncManager][EPItemResync] Coroutine started with null targetPlayer. Aborting.");
@@ -415,139 +416,207 @@ internal static class ItemSyncManager
         }
 
         int targetActorNr = targetPlayer.ActorNumber;
-        string targetNickname = targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
+        string targetNickname = targetPlayer.NickName ?? $"ActorNr {targetActorNr}";
         string epName = epToSync.name;
-        Log.LogInfo($"[ItemSyncManager][EPItemResync] Starting for {targetNickname} in EP '{epName}'.");
 
-        // Ensure player is still in the room
-        if (PhotonNetwork.CurrentRoom == null || !PhotonNetwork.CurrentRoom.Players.ContainsKey(targetPlayer.ActorNumber))
+        // Ensure player is still in the room before starting
+        if (PhotonNetwork.CurrentRoom == null || !PhotonNetwork.CurrentRoom.Players.ContainsKey(targetActorNr))
         {
-            Log.LogWarning($"[ItemSyncManager][EPItemResync] Player {targetNickname} left room before resync could start. Aborting.");
+            Log.LogWarning($"[ItemSyncManager][EPItemResync] Player {targetNickname} left room before resync could start for EP '{epName}'. Aborting.");
             yield break;
         }
 
+        // Check with LateJoinManager if this task is still pending
         if (!LateJoinManager.IsLateJoinerPendingAsyncTask(targetActorNr, LateJoinManager.LateJoinTaskType.ExtractionPointItems))
         {
-            Log.LogWarning($"[ItemSyncManager][EPItemResync] Player {targetPlayer.NickName} is not an active late joiner pending EP resync. Aborting coroutine.");
+            Log.LogWarning($"[ItemSyncManager][EPItemResync] Player {targetNickname} is no longer pending EP item resync for '{epName}'. Aborting.");
             yield break;
         }
 
-        bool isShopScene = SemiFunc.RunIsShop();
-        Vector3 farAwayPosition = epToSync.transform.position + (Vector3.up * 500f); // Move items far up
-        List<GameObject> itemsToResync = new List<GameObject>();
+        Log.LogInfo($"[ItemSyncManager][EPItemResync] Starting item list sync for {targetNickname} in EP '{epName}'.");
 
-        // Gather items based on scene type
+        bool isShopScene = SemiFunc.RunIsShop();
+        List<GameObject> itemsTheHostConsidersInEpToSync = new List<GameObject>();
+
+        // --- Gather Items the Host Considers to be in epToSync ---
         if (isShopScene)
         {
             if (ShopManager.instance != null && ReflectionCache.ShopManager_ShoppingListField != null)
             {
                 try
                 {
+                    // Assuming ShopManager.shoppingList directly reflects items in the shop EP
                     if (ReflectionCache.ShopManager_ShoppingListField.GetValue(ShopManager.instance) is List<ItemAttributes> shopList)
                     {
-                        itemsToResync.AddRange(shopList.Where(itemAttr => itemAttr != null && itemAttr.gameObject != null)
-                                                      .Select(itemAttr => itemAttr.gameObject));
+                        itemsTheHostConsidersInEpToSync.AddRange(
+                            shopList.Where(itemAttr => itemAttr != null && itemAttr.gameObject != null)
+                                    .Select(itemAttr => itemAttr.gameObject)
+                        );
                     }
                 }
-                catch (Exception ex) { Log.LogError($"[ItemSyncManager][EPItemResync] Error reflecting ShopManager.shoppingList: {ex}"); }
+                catch (System.Exception ex) { Log.LogError($"[ItemSyncManager][EPItemResync-Shop] Error reflecting ShopManager.shoppingList for {targetNickname}: {ex}"); }
             }
+            else { Log.LogWarning("[ItemSyncManager][EPItemResync-Shop] ShopManager instance or shoppingList field reflection missing."); }
         }
         else // Level scene
         {
-            if (RoundDirector.instance?.dollarHaulList != null)
+            if (RoundDirector.instance != null)
             {
-                itemsToResync.AddRange(RoundDirector.instance.dollarHaulList.Where(go => go != null));
-            }
-        }
-
-        if (itemsToResync.Count == 0)
-        {
-            Log.LogDebug($"[ItemSyncManager][EPItemResync] No items identified in EP '{epName}' for {targetNickname}. Nothing to resync.");
-            yield break;
-        }
-
-        Log.LogInfo($"[ItemSyncManager][EPItemResync] Found {itemsToResync.Count} items in '{epName}' for {targetNickname}. Preparing teleport sequence.");
-
-        Dictionary<int, (Vector3 position, Quaternion rotation)> originalTransforms = new Dictionary<int, (Vector3, Quaternion)>();
-        List<PhysGrabObject> validPhysObjectsToTeleport = new List<PhysGrabObject>();
-
-        // Teleport items away
-        foreach (GameObject itemGO in itemsToResync)
-        {
-            if (itemGO == null) continue;
-
-            PhysGrabObject? pgo = itemGO.GetComponent<PhysGrabObject>();
-            PhotonView? pv = PhotonUtilities.GetPhotonViewFromPGO(pgo); // Handles PGO being null
-
-            if (pgo == null || pv == null)
-            {
-                Log.LogDebug($"[ItemSyncManager][EPItemResync] Skipping item '{itemGO.name}' (no PGO or PV).");
-                continue;
-            }
-
-            if (!pv.IsMine) // Request ownership if not already owner
-            {
-                pv.RequestOwnership();
-                // Note: Ownership request is asynchronous. A small delay might be needed here
-                // if immediate teleportation without ownership causes issues.
-                // For simplicity, we proceed, but this is a potential refinement point.
-            }
-
-            originalTransforms[pv.ViewID] = (itemGO.transform.position, itemGO.transform.rotation);
-            validPhysObjectsToTeleport.Add(pgo);
-
-            try
-            {
-                pgo.Teleport(farAwayPosition, itemGO.transform.rotation);
-            }
-            catch (Exception ex)
-            {
-                Log.LogError($"[ItemSyncManager][EPItemResync] Error teleporting '{itemGO.name}' (ViewID: {pv.ViewID}) AWAY: {ex}");
-            }
-        }
-
-        yield return new WaitForSeconds(ItemResyncDelaySeconds);
-
-        // Ensure player is still in room before teleporting back
-        if (PhotonNetwork.CurrentRoom == null || !PhotonNetwork.CurrentRoom.Players.ContainsKey(targetPlayer.ActorNumber))
-        {
-            Log.LogWarning($"[ItemSyncManager][EPItemResync] Player {targetNickname} left room during resync delay. Aborting teleport BACK.");
-            yield break;
-        }
-
-        Log.LogInfo($"[ItemSyncManager][EPItemResync] Teleporting {validPhysObjectsToTeleport.Count} items back for {targetNickname}.");
-
-        // Teleport items back
-        foreach (PhysGrabObject pgo in validPhysObjectsToTeleport)
-        {
-            if (pgo == null || pgo.gameObject == null) continue; // Should not happen if added correctly
-
-            PhotonView? pv = PhotonUtilities.GetPhotonViewFromPGO(pgo);
-            if (pv == null) continue; // Should not happen
-
-            int viewID = pv.ViewID;
-            if (originalTransforms.TryGetValue(viewID, out var originalTransform))
-            {
-                if (!pv.IsMine)
-                {
-                    Log.LogWarning($"[ItemSyncManager][EPItemResync] Lost ownership of '{pgo.gameObject.name}' (ViewID: {viewID}) before teleporting back.");
-                    // Optionally, re-request ownership or skip teleport back for this item.
-                }
                 try
                 {
-                    pgo.Teleport(originalTransform.position, originalTransform.rotation);
+                    ExtractionPoint? hostCurrentEP = ReflectionCache.RoundDirector_ExtractionPointCurrentField.GetValue(RoundDirector.instance) as ExtractionPoint;
+                    if (epToSync == hostCurrentEP)
+                    {
+                        if (RoundDirector.instance.dollarHaulList != null)
+                        {
+                            itemsTheHostConsidersInEpToSync.AddRange(RoundDirector.instance.dollarHaulList.Where(go => go != null));
+                        }
+                    }
+                    else
+                    {
+                        Log.LogInfo($"[ItemSyncManager][EPItemResync-Level] epToSync ('{epName}') is not host's current active EP ('{hostCurrentEP?.name ?? "None"}'). Host considers 0 items for its active haul contribution.");
+                    }
                 }
-                catch (Exception ex)
+                catch (System.Exception ex)
                 {
-                    Log.LogError($"[ItemSyncManager][EPItemResync] Error teleporting '{pgo.gameObject.name}' (ViewID: {viewID}) BACK: {ex}");
+                    Log.LogError($"[ItemSyncManager][EPItemResync-Level] Error reflecting RoundDirector.extractionPointCurrent for {targetNickname}: {ex}");
+                }
+            }
+            else { Log.LogError("[ItemSyncManager][EPItemResync-Level] RoundDirector.instance is null. Cannot determine items."); yield break; }
+        }
+
+        Log.LogInfo($"[ItemSyncManager][EPItemResync] Host considers {itemsTheHostConsidersInEpToSync.Count} items in EP '{epName}' for {targetNickname}.");
+
+        // Double-check player presence before sending RPCs
+        if (PhotonNetwork.CurrentRoom == null || !PhotonNetwork.CurrentRoom.Players.ContainsKey(targetActorNr))
+        {
+            Log.LogWarning($"[ItemSyncManager][EPItemResync] Player {targetNickname} left room before RPCs could be sent for EP '{epName}'. Aborting.");
+            yield break;
+        }
+
+        // --- Send RPCs to Sync Item Lists ---
+        if (isShopScene)
+        {
+            int totalShopCostOnHost = 0;
+            foreach (GameObject itemGO in itemsTheHostConsidersInEpToSync)
+            {
+                if (itemGO == null) continue;
+                ItemAttributes? itemAttr = itemGO.GetComponent<ItemAttributes>();
+                if (itemAttr != null)
+                {
+                    try
+                    {
+                        // Use reflection for ItemAttributes.value
+                        int? itemValue = ReflectionCache.ItemAttributes_ValueField.GetValue(itemAttr) as int?;
+                        if (itemValue.HasValue)
+                        {
+                            totalShopCostOnHost += itemValue.Value;
+                        }
+                        else
+                        {
+                            Log.LogWarning($"[ItemSyncManager][EPItemResync-Shop] Failed to get value for item '{itemGO.name}' via reflection.");
+                        }
+                    }
+                    catch (System.Exception ex)
+                    {
+                        Log.LogError($"[ItemSyncManager][EPItemResync-Shop] Error reflecting ItemAttributes.value for item '{itemGO.name}': {ex}");
+                    }
+                }
+            }
+
+            Log.LogInfo($"[ItemSyncManager][EPItemResync-Shop] Sending 'UpdateShoppingCostRPC' with total value {totalShopCostOnHost} to {targetNickname} for EP '{epName}'.");
+
+            // Get PunManager's PhotonView using your utilities or reflection if necessary
+            PhotonView? punManagerPv = PhotonUtilities.GetPhotonView(PunManager.instance); // Assuming PunManager.instance is a MonoBehaviour
+            if (punManagerPv != null)
+            {
+                punManagerPv.RPC("UpdateShoppingCostRPC", targetPlayer, totalShopCostOnHost);
+            }
+            else { Log.LogError("[ItemSyncManager][EPItemResync-Shop] PunManager's PhotonView is null (or PunManager instance is null). Cannot send UpdateShoppingCostRPC."); }
+        }
+        else // Level scene
+        {
+            List<PhotonView> allValuablePVsInScene = new List<PhotonView>();
+            ValuableObject[] allValuables = Object.FindObjectsOfType<ValuableObject>(true);
+            foreach (ValuableObject vo in allValuables)
+            {
+                if (vo == null || vo.gameObject == null) continue;
+                PhotonView? pv = PhotonUtilities.GetPhotonView(vo);
+                if (pv != null)
+                {
+                    allValuablePVsInScene.Add(pv);
+                }
+            }
+
+            if (allValuablePVsInScene.Count > 0)
+            {
+                Log.LogInfo($"[ItemSyncManager][EPItemResync-Level] Sending global 'RemoveFromDollarHaulListRPC' for {allValuablePVsInScene.Count} potential items to {targetNickname} to clear client's list.");
+                foreach (PhotonView pv in allValuablePVsInScene)
+                {
+                    // Check if PV is still valid before RPC (e.g., object not destroyed)
+                    if (pv != null && pv.gameObject != null)
+                    {
+                        pv.RPC("RemoveFromDollarHaulListRPC", targetPlayer);
+                    }
                 }
             }
             else
             {
-                Log.LogWarning($"[ItemSyncManager][EPItemResync] Could not find original transform for item with ViewID {viewID} ('{pgo.gameObject.name}'). Cannot teleport back.");
+                Log.LogInfo($"[ItemSyncManager][EPItemResync-Level] No valuable items found in scene to send global Remove RPCs for.");
+            }
+
+            // Wait for a moment to allow the client to process these removal RPCs.
+            // This should cause their HaulUI to update.
+            if (LevelEpRpcsDelaySeconds > 0)
+            {
+                yield return new WaitForSeconds(LevelEpRpcsDelaySeconds);
+            }
+            else // If delay is 0, still yield a frame.
+            {
+                yield return null;
+            }
+
+
+            // Check player presence again after the delay
+            if (PhotonNetwork.CurrentRoom == null || !PhotonNetwork.CurrentRoom.Players.ContainsKey(targetActorNr))
+            {
+                Log.LogWarning($"[ItemSyncManager][EPItemResync] Player {targetNickname} left room during RPC delay for EP '{epName}'. Aborting Add RPCs.");
+                yield break;
+            }
+
+            // Step 2: Add back only the items that the host currently has in epToSync.
+            if (itemsTheHostConsidersInEpToSync.Count > 0)
+            {
+                Log.LogInfo($"[ItemSyncManager][EPItemResync-Level] Sending 'AddToDollarHaulListRPC' for {itemsTheHostConsidersInEpToSync.Count} items currently in EP '{epName}' on host to {targetNickname}.");
+                foreach (GameObject itemGO in itemsTheHostConsidersInEpToSync)
+                {
+                    if (itemGO == null) continue;
+                    PhotonView pv = itemGO.GetPhotonView(); // Assumes ValuableObject's GameObject has the PhotonView
+                    if (pv != null)
+                    {
+                        if (pv != null && pv.gameObject != null) // Check PV validity
+                        {
+                            pv.RPC("AddToDollarHaulListRPC", targetPlayer);
+                        }
+                    }
+                    else { Log.LogWarning($"[ItemSyncManager][EPItemResync-Level] Item '{itemGO.name}' in host's EP list for '{epName}' lacks a PhotonView. Cannot send Add RPC."); }
+                }
+            }
+            else
+            {
+                Log.LogInfo($"[ItemSyncManager][EPItemResync-Level] Host has 0 items in EP '{epName}' to add back to {targetNickname}. Client's list should now be clear.");
             }
         }
-        Log.LogInfo($"[ItemSyncManager][EPItemResync] Finished item resync sequence for {targetNickname} in EP '{epName}'. Reporting completion.");
+
+        // Final check and report completion
+        if (PhotonNetwork.CurrentRoom == null || !PhotonNetwork.CurrentRoom.Players.ContainsKey(targetActorNr))
+        {
+            Log.LogWarning($"[ItemSyncManager][EPItemResync] Player {targetNickname} left room before resync completion for EP '{epName}' could be reported.");
+            // LateJoinManager might still need to be notified, possibly with a failure/abort status
+            yield break;
+        }
+
+        Log.LogInfo($"[ItemSyncManager][EPItemResync] Finished item list sync sequence for {targetNickname} in EP '{epName}'. Reporting completion.");
         LateJoinManager.ReportLateJoinAsyncTaskCompleted(targetActorNr, LateJoinManager.LateJoinTaskType.ExtractionPointItems);
     }
     #endregion
