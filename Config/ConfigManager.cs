@@ -27,6 +27,9 @@ internal static class ConfigManager
     private static ConfigEntry<bool> Bool(ConfigFile cfg, string section, string key, bool def, string desc) =>
         cfg.Bind(section, key, def, desc);
 
+    private static ConfigEntry<float> Float(ConfigFile cfg, string section, string key, float def, string desc) =>
+    cfg.Bind(section, key, def, desc);
+
     private static ConfigEntry<TEnum> Enum<TEnum>(ConfigFile cfg, string section, string key, TEnum def, string desc)
         where TEnum : struct, Enum =>
         cfg.Bind(section, key, def, desc);
@@ -57,6 +60,7 @@ internal static class ConfigManager
         public static ConfigEntry<bool> KillIfPreviouslyDead { get; private set; } = null!;
         public static ConfigEntry<bool> SpawnAtLastPosition { get; private set; } = null!;
         public static ConfigEntry<bool> LockLobbyOnLevelGenFail { get; private set; } = null!;
+        public static ConfigEntry<float> MinSpawnDistance { get; private set; } = null!;
 
         internal static void Bind(ConfigFile cfg)
         {
@@ -67,6 +71,8 @@ internal static class ConfigManager
                 "Spawn re-joining players at their last known position (or death head).");
             LockLobbyOnLevelGenFail = Bool(cfg, S, "Lock lobby on level generation failure", true,
                 "If true, lobby locks when a level reports generation failure.");
+            MinSpawnDistance = Float(cfg, S, "Minimum Spawn Distance", 10.0f,
+                "Minimum distance (in meters) between spawning players to consider a spawn point 'free'.");
         }
     }
 
@@ -175,6 +181,7 @@ internal static class ConfigManager
     internal static ConfigEntry<bool> KillIfPreviouslyDead => LateJoin.KillIfPreviouslyDead;
     internal static ConfigEntry<bool> SpawnAtLastPosition => LateJoin.SpawnAtLastPosition;
     internal static ConfigEntry<bool> LockLobbyOnLevelGenerationFailure => LateJoin.LockLobbyOnLevelGenFail;
+    internal static ConfigEntry<float> MinSpawnDistance => LateJoin.MinSpawnDistance;
 
     // Lobby
     internal static ConfigEntry<bool> KeepPublicLobbyListed => Lobby.KeepPublicListed;

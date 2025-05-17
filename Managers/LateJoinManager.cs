@@ -5,18 +5,13 @@ using LATE.DataModels;
 using LATE.Utilities;
 using Photon.Pun;
 using Photon.Realtime;
-using System.Collections.Generic; // Added for Dictionary and HashSet
-using System.Linq; // Added for LINQ
-using Object = UnityEngine.Object;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine; // Added for CoroutineHelper.CoroutineRunner.StartCoroutine
+using Object = UnityEngine.Object; // Explicit alias
 
 namespace LATE.Managers;
 
-/// <summary>
-/// Manages the state and synchronization process for players who join after a
-/// level has started. Orchestrates calls to more specialized sync managers.
-/// Central authority for tracking if a player is considered an "active late joiner"
-/// for the current scene instance, requiring L.A.T.E. specific syncs.
-/// </summary>
 internal static class LateJoinManager
 {
     private static readonly BepInEx.Logging.ManualLogSource Log = LatePlugin.Log;
@@ -25,26 +20,15 @@ internal static class LateJoinManager
     {
         Voice,
         ExtractionPointItems
-        // Add other distinct L.A.T.E. asynchronous tasks here if they arise
     }
 
     #region Player Tracking State
-    // _playersNeedingInitialSync: Players who joined late and are awaiting their first LoadingCompleteRPC to trigger SyncAllStateForPlayer.
     private static readonly HashSet<int> _playersNeedingInitialSync = new HashSet<int>();
-
-    // _activeLateJoinersThisScene: Players who joined late this scene and are still undergoing L.A.T.E.'s sync process.
-    // Once all L.A.T.E. syncs (initial + async) are done, they are removed.
     private static readonly HashSet<int> _activeLateJoinersThisScene = new HashSet<int>();
-
-    // _pendingAsyncTasksForLateJoiners: Tracks pending asynchronous L.A.T.E. tasks for active late joiners.
     private static readonly Dictionary<int, HashSet<LateJoinTaskType>> _pendingAsyncTasksForLateJoiners = new Dictionary<int, HashSet<LateJoinTaskType>>();
     #endregion
 
     #region Scene Management
-    /// <summary>
-    /// Clears all late-join tracking sets, typically called when a new scene loads.
-    /// This makes all existing players "regular" from L.A.T.E.'s perspective for the new scene.
-    /// </summary>
     public static void ResetSceneTracking()
     {
         Log.LogDebug("[LateJoinManager] Clearing all late-join tracking sets for new scene instance.");
@@ -55,9 +39,6 @@ internal static class LateJoinManager
     #endregion
 
     #region Player Join and Tracking Logic
-    /// <summary>
-    /// Handles a new player joining the room, marking them for L.A.T.E. sync process if necessary.
-    /// </summary>
     public static void HandlePlayerJoined(Player newPlayer)
     {
         if (newPlayer == null)
@@ -87,15 +68,8 @@ internal static class LateJoinManager
         }
     }
 
-    /// <summary>
-    /// Checks if a player is currently marked as needing the initial L.A.T.E. data sync trigger.
-    /// </summary>
     internal static bool IsPlayerNeedingInitialSync(int actorNumber) => _playersNeedingInitialSync.Contains(actorNumber);
 
-    /// <summary>
-    /// Marks that a player's initial L.A.T.E. sync has been triggered and removes them from the 'needing initial sync' list.
-    /// This is typically called before <see cref="SyncAllStateForPlayer"/>.
-    /// </summary>
     internal static void MarkInitialSyncTriggered(int actorNumber)
     {
         if (_playersNeedingInitialSync.Remove(actorNumber))
@@ -104,15 +78,8 @@ internal static class LateJoinManager
         }
     }
 
-    /// <summary>
-    /// Checks if a player is currently considered an active late joiner for the current scene instance,
-    /// meaning L.A.T.E. specific sync logic might still apply to them.
-    /// </summary>
     internal static bool IsPlayerAnActiveLateJoiner(int actorNumber) => _activeLateJoinersThisScene.Contains(actorNumber);
 
-    /// <summary>
-    /// Checks if an active late joiner is still pending a specific asynchronous L.A.T.E. task.
-    /// </summary>
     internal static bool IsLateJoinerPendingAsyncTask(int actorNumber, LateJoinTaskType taskType)
     {
         return _activeLateJoinersThisScene.Contains(actorNumber) &&
@@ -120,11 +87,6 @@ internal static class LateJoinManager
                pendingTasks.Contains(taskType);
     }
 
-    /// <summary>
-    /// Called by asynchronous L.A.T.E. sync managers (e.g., VoiceManager, ItemSyncManager for EP)
-    /// to report that a specific task has completed for a late-joining player.
-    /// If all async tasks are complete, the player is removed from active late joiner tracking for this scene.
-    /// </summary>
     public static void ReportLateJoinAsyncTaskCompleted(int actorNumber, LateJoinTaskType taskType)
     {
         if (!PhotonUtilities.IsRealMasterClient()) return;
@@ -132,8 +94,7 @@ internal static class LateJoinManager
         if (!_activeLateJoinersThisScene.Contains(actorNumber))
         {
             Log.LogDebug($"[LateJoinManager] ReportLateJoinAsyncTaskCompleted for ActorNr {actorNumber}, Task {taskType}, but player is not in _activeLateJoinersThisScene. Ignoring.");
-            // Could happen if player left or scene changed during async task.
-            _pendingAsyncTasksForLateJoiners.Remove(actorNumber); // Clean up pending tasks if any linger.
+            _pendingAsyncTasksForLateJoiners.Remove(actorNumber);
             return;
         }
 
@@ -156,9 +117,7 @@ internal static class LateJoinManager
         }
         else
         {
-            Log.LogWarning($"[LateJoinManager] ReportLateJoinAsyncTaskCompleted for ActorNr {actorNumber}, Task {taskType}, but no pending tasks entry found. This might indicate initial setup issue or premature call.");
-            // If they are an active late joiner but have no pending tasks entry, assume something went wrong with setup
-            // or all tasks somehow completed without this path. For safety, try to remove from active list.
+            Log.LogWarning($"[LateJoinManager] ReportLateJoinAsyncTaskCompleted for ActorNr {actorNumber}, Task {taskType}, but no pending tasks entry found.");
             if (_activeLateJoinersThisScene.Remove(actorNumber))
             {
                 Log.LogWarning($"[LateJoinManager] ActorNr {actorNumber} removed from _activeLateJoinersThisScene due to inconsistent pending task state.");
@@ -166,10 +125,6 @@ internal static class LateJoinManager
         }
     }
 
-
-    /// <summary>
-    /// Clears all L.A.T.E. late join tracking for a specific player, typically when they leave.
-    /// </summary>
     internal static void ClearPlayerTracking(int actorNumber)
     {
         bool removedInitial = _playersNeedingInitialSync.Remove(actorNumber);
@@ -184,10 +139,55 @@ internal static class LateJoinManager
     #endregion
 
     #region Central Synchronization Logic
-    /// <summary>
-    /// Orchestrates the synchronization of all relevant game states to a late-joining player.
-    /// This method initiates both synchronous RPCs and sets up tracking for asynchronous L.A.T.E. tasks.
-    /// </summary>
+
+    private static void SyncExistingDeadPlayersToLateJoiner(Player lateJoiningPlayer)
+    {
+        if (!PhotonUtilities.IsRealMasterClient()) return;
+
+        string lateJoinerName = lateJoiningPlayer.NickName ?? $"ActorNr {lateJoiningPlayer.ActorNumber}";
+        Log.LogInfo($"[LateJoinManager][SyncDeadPlayers] Starting sync of existing dead players TO {lateJoinerName}.");
+        int syncedCount = 0;
+
+        foreach (var existingPlayerEntry in PhotonNetwork.CurrentRoom.Players)
+        {
+            Player existingPlayer = existingPlayerEntry.Value;
+            if (existingPlayer == null || existingPlayer.ActorNumber == lateJoiningPlayer.ActorNumber)
+            {
+                continue;
+            }
+
+            if (PlayerStateManager.GetPlayerLifeStatus(existingPlayer) == PlayerLifeStatus.Dead)
+            {
+                if (PlayerStateManager.TryGetPlayerDeathEnemyIndex(existingPlayer, out int enemyIdxOfDeadPlayer))
+                {
+                    PlayerAvatar? deadPlayerAvatar = GameUtilities.FindPlayerAvatar(existingPlayer);
+                    if (deadPlayerAvatar != null && deadPlayerAvatar.photonView != null)
+                    {
+                        Log.LogInfo($"[LateJoinManager][SyncDeadPlayers] Player {existingPlayer.NickName} is dead. Sending PlayerDeathRPC to {lateJoinerName} for this player (Avatar ViewID: {deadPlayerAvatar.photonView.ViewID}) with enemyIndex {enemyIdxOfDeadPlayer}.");
+                        try
+                        {
+                            deadPlayerAvatar.photonView.RPC("PlayerDeathRPC", lateJoiningPlayer, enemyIdxOfDeadPlayer);
+                            syncedCount++;
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.LogError($"[LateJoinManager][SyncDeadPlayers] Error sending PlayerDeathRPC for {deadPlayerAvatar.name}'s death to {lateJoinerName}: {ex}");
+                        }
+                    }
+                    else
+                    {
+                        Log.LogWarning($"[LateJoinManager][SyncDeadPlayers] Could not find PlayerAvatar for dead player {existingPlayer.NickName} to sync its state to {lateJoinerName}.");
+                    }
+                }
+                else
+                {
+                    Log.LogWarning($"[LateJoinManager][SyncDeadPlayers] Player {existingPlayer.NickName} is dead, but couldn't retrieve their death enemyIndex.");
+                }
+            }
+        }
+        Log.LogInfo($"[LateJoinManager][SyncDeadPlayers] Finished syncing death states of {syncedCount} other players to {lateJoinerName}.");
+    }
+
     public static void SyncAllStateForPlayer(Player targetPlayer, PlayerAvatar playerAvatar)
     {
         if (targetPlayer == null)
@@ -199,17 +199,16 @@ internal static class LateJoinManager
         int actorNr = targetPlayer.ActorNumber;
         string nickname = targetPlayer.NickName ?? $"ActorNr {actorNr}";
 
-        // Crucial Gate: Only proceed if this player is marked as an active late joiner for this scene.
         if (!IsPlayerAnActiveLateJoiner(actorNr))
         {
-            Log.LogWarning($"[LateJoinManager] SyncAllStateForPlayer called for {nickname}, but they are NOT in _activeLateJoinersThisScene. Aborting L.A.T.E. sync. This might be normal if they were already fully synced or left.");
-            _pendingAsyncTasksForLateJoiners.Remove(actorNr); // Ensure no pending tasks linger if state is inconsistent
+            Log.LogWarning($"[LateJoinManager] SyncAllStateForPlayer called for {nickname}, but they are NOT in _activeLateJoinersThisScene. Aborting L.A.T.E. sync.");
+            _pendingAsyncTasksForLateJoiners.Remove(actorNr);
             return;
         }
 
         if (playerAvatar == null)
         {
-            Log.LogError($"[LateJoinManager] SyncAllStateForPlayer called with a null playerAvatar for {nickname}. Aborting death/enemy sync portions. This is problematic for full sync.");
+            Log.LogError($"[LateJoinManager] SyncAllStateForPlayer called with a null playerAvatar for {nickname}. Most syncs will be skipped. This is problematic for full sync.");
             // Decide if other syncs should proceed or if this is fatal.
             // For now, we'll proceed but this player might not become "fully L.A.T.E. synced" if critical async tasks depend on the avatar.
         }
@@ -218,7 +217,7 @@ internal static class LateJoinManager
 
         try
         {
-            // --- Perform synchronous L.A.T.E. syncs ---
+            // --- Perform synchronous L.A.T.E. syncs (excluding self-death for now) ---
             LevelSyncManager.SyncLevelState(targetPlayer);
             LevelSyncManager.SyncModuleConnectionStatesForPlayer(targetPlayer);
             LevelSyncManager.SyncExtractionPointsForPlayer(targetPlayer);
@@ -239,11 +238,12 @@ internal static class LateJoinManager
             {
                 EnemySyncManager.SyncAllEnemyStatesForPlayer(targetPlayer);
                 EnemySyncManager.NotifyEnemiesOfNewPlayer(targetPlayer, playerAvatar);
-                SyncPlayerDeathState(targetPlayer, playerAvatar);
+                // Sync OTHER dead players TO this lateJoiner
+                SyncExistingDeadPlayersToLateJoiner(targetPlayer);
             }
             else
             {
-                Log.LogWarning($"[LateJoinManager] Skipping Enemy and Death sync for {nickname} due to null playerAvatar during SyncAllStateForPlayer.");
+                Log.LogWarning($"[LateJoinManager] Skipping Enemy and Existing-Dead-Player sync for {nickname} due to null playerAvatar during SyncAllStateForPlayer.");
             }
 
             LevelSyncManager.SyncTruckScreenForPlayer(targetPlayer);
@@ -260,8 +260,8 @@ internal static class LateJoinManager
                 LateJoinTaskType.Voice
             };
 
-            ExtractionPoint? epToResync = null; // Moved declaration higher
-            if (PhotonUtilities.IsRealMasterClient()) // EP resync is host-only
+            ExtractionPoint? epToResync = null;
+            if (PhotonUtilities.IsRealMasterClient())
             {
                 epToResync = FindEpForResync(isShopScene);
                 if (epToResync != null)
@@ -272,31 +272,63 @@ internal static class LateJoinManager
             _pendingAsyncTasksForLateJoiners[actorNr] = asyncTasksToTrack;
             Log.LogInfo($"[LateJoinManager] ActorNr {actorNr} has {_pendingAsyncTasksForLateJoiners[actorNr].Count} async L.A.T.E. tasks pending: [{string.Join(", ", _pendingAsyncTasksForLateJoiners[actorNr])}]");
 
-
             // --- Start/Signal asynchronous L.A.T.E. tasks ---
-            // VoiceManager will be signalled by its own HandleAvatarUpdate or a direct call if necessary
-            // VoiceManager.ScheduleSyncForLateJoiner(targetPlayer); // Or similar, VoiceManager will check IsLateJoinerPendingAsyncTask
-            // For now, VoiceManager's existing TryScheduleSync (if called by its HandleAvatarUpdate when player is ready and pending)
-            // will lead to it calling ReportLateJoinAsyncTaskCompleted.
-
-            if (epToResync != null) // Check again, as it's conditional
+            if (epToResync != null && CoroutineHelper.CoroutineRunner != null)
             {
                 Log.LogInfo($"[LateJoinManager] Starting ItemSyncManager.ResyncExtractionPointItems coroutine for {nickname} in EP '{epToResync.name}'.");
-                if (CoroutineHelper.CoroutineRunner != null)
-                {
-                    // Pass actorNr to the coroutine or ensure ItemSyncManager knows who it's for to report back.
-                    // The coroutine already takes targetPlayer.
-                    CoroutineHelper.CoroutineRunner.StartCoroutine(ItemSyncManager.ResyncExtractionPointItems(targetPlayer, epToResync));
-                }
-                else
-                {
-                    Log.LogError("[LateJoinManager] Cannot start ResyncExtractionPointItems: CoroutineHelper.CoroutineRunner is null! EP Resync for this player will not complete.");
-                    ReportLateJoinAsyncTaskCompleted(actorNr, LateJoinTaskType.ExtractionPointItems); // Mark as failed/skipped
-                }
+                CoroutineHelper.CoroutineRunner.StartCoroutine(ItemSyncManager.ResyncExtractionPointItems(targetPlayer, epToResync));
+            }
+            else if (epToResync != null) // CoroutineRunner was null
+            {
+                Log.LogError("[LateJoinManager] Cannot start ResyncExtractionPointItems: CoroutineHelper.CoroutineRunner is null! EP Resync for this player will not complete.");
+                ReportLateJoinAsyncTaskCompleted(actorNr, LateJoinManager.LateJoinTaskType.ExtractionPointItems); // Mark as failed/skipped
             }
 
+            // --- Final step: Handle self-death based on KillIfPreviouslyDead config ---
+            if (playerAvatar != null) // Need avatar for this
+            {
+                PlayerLifeStatus currentStatus = PlayerStateManager.GetPlayerLifeStatus(targetPlayer);
+                // ADDED/ENSURED DIAGNOSTIC LOGGING HERE:
+                Log.LogInfo($"[LateJoinManager] FINAL STEP CHECK for {nickname}: PlayerStateManager status is {currentStatus}. KillIfPreviouslyDead config: {ConfigManager.KillIfPreviouslyDead.Value}. TargetPlayer UserId: '{targetPlayer.UserId}'");
+
+                if (currentStatus == PlayerLifeStatus.Dead)
+                {
+                    if (ConfigManager.KillIfPreviouslyDead.Value)
+                    {
+                        PhotonView? targetPv = PhotonUtilities.GetPhotonView(playerAvatar);
+                        if (targetPv != null)
+                        {
+                            if (PlayerStateManager.TryGetPlayerDeathEnemyIndex(targetPlayer, out int selfDeathEnemyIndex))
+                            {
+                                Log.LogInfo($"[LateJoinManager] FINAL STEP: Killing late-joiner {nickname} as they were previously dead (KillIfPreviouslyDead=true). EnemyIndex: {selfDeathEnemyIndex}. Sending PlayerDeathRPC via AllBuffered.");
+                                targetPv.RPC("PlayerDeathRPC", RpcTarget.AllBuffered, selfDeathEnemyIndex);
+                            }
+                            else
+                            {
+                                Log.LogWarning($"[LateJoinManager] FINAL STEP: Late joiner {nickname} was previously dead (KillIfPreviouslyDead=true), but could not retrieve enemyIndex for their death. Sending PlayerDeathRPC with -1 via AllBuffered.");
+                                targetPv.RPC("PlayerDeathRPC", RpcTarget.AllBuffered, -1); // Fallback
+                            }
+                        }
+                        else
+                        {
+                            Log.LogWarning($"[LateJoinManager] FINAL STEP: Could not get PhotonView for late joiner {nickname} to sync self-death (KillIfPreviouslyDead=true).");
+                        }
+                    }
+                    else // KillIfPreviouslyDead is false, but they were dead. Forgive them.
+                    {
+                        Log.LogInfo($"[LateJoinManager] FINAL STEP: Late-joiner {nickname} was previously dead, but KillIfPreviouslyDead is false. Marking as ALIVE in PlayerStateManager (forgiving previous death for this session).");
+                        PlayerStateManager.MarkPlayerAlive(targetPlayer);
+                    }
+                }
+                // If currentStatus is Alive or Unknown, they join alive by default (unless other game logic kills them later).
+            }
+            else
+            {
+                Log.LogWarning($"[LateJoinManager] FINAL STEP: Skipping self-death check for {nickname} due to null playerAvatar.");
+            }
+
+
             // If there are no async tasks registered, the player might be considered fully synced immediately.
-            // This is handled if _pendingAsyncTasksForLateJoiners[actorNr] is empty after setup.
             if (_pendingAsyncTasksForLateJoiners.TryGetValue(actorNr, out var tasks) && tasks.Count == 0)
             {
                 Log.LogInfo($"[LateJoinManager] ActorNr {actorNr} has no L.A.T.E. async tasks pending after initial sync. Marking as fully L.A.T.E. synced.");
@@ -306,12 +338,10 @@ internal static class LateJoinManager
                     Log.LogInfo($"[LateJoinManager] ActorNr {actorNr} REMOVED from _activeLateJoinersThisScene immediately after initial sync (no async tasks).");
                 }
             }
-
         }
         catch (Exception ex)
         {
             Log.LogError($"[LateJoinManager] CRITICAL ERROR during SyncAllStateForPlayer for {nickname}: {ex}");
-            // Ensure player is cleaned up from tracking if a major error occurs during the initial sync phase
             ClearPlayerTracking(actorNr);
         }
         finally
@@ -320,7 +350,6 @@ internal static class LateJoinManager
         }
     }
 
-    // ... (FindEpForResync and SyncPlayerDeathState remain mostly the same)
     private static ExtractionPoint? FindEpForResync(bool isShopScene)
     {
         if (isShopScene)
@@ -355,38 +384,6 @@ internal static class LateJoinManager
             }
             catch (Exception ex) { Log.LogWarning($"[LateJoinManager] FindEpForResync: Error reflecting current EP from RoundDirector: {ex}"); return null; }
         }
-    }
-
-    private static void SyncPlayerDeathState(Player targetPlayer, PlayerAvatar playerAvatar)
-    {
-        if (targetPlayer == null || playerAvatar == null)
-        {
-            Log.LogWarning("[LateJoinManager][DeathSync] TargetPlayer or PlayerAvatar is null. Skipping death sync.");
-            return;
-        }
-        string nickname = targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
-        if (!ConfigManager.KillIfPreviouslyDead.Value)
-        {
-            Log.LogDebug($"[LateJoinManager][DeathSync] KillIfPreviouslyDead is disabled for {nickname}. Skipping.");
-            return;
-        }
-        PlayerStatus status = PlayerStateManager.GetPlayerStatus(targetPlayer);
-        if (status == PlayerStatus.Dead)
-        {
-            PhotonView? pv = PhotonUtilities.GetPhotonView(playerAvatar);
-            if (pv == null) { Log.LogError($"[LateJoinManager][DeathSync] Null PhotonView for {nickname}. Cannot send PlayerDeathRPC."); return; }
-            bool isDisabled = false, isDeadSet = false;
-            try
-            {
-                if (ReflectionCache.PlayerAvatar_IsDisabledField != null) isDisabled = ReflectionCache.PlayerAvatar_IsDisabledField.GetValue(playerAvatar) as bool? ?? false;
-                if (ReflectionCache.PlayerAvatar_DeadSetField != null) isDeadSet = ReflectionCache.PlayerAvatar_DeadSetField.GetValue(playerAvatar) as bool? ?? false;
-            }
-            catch (Exception ex) { Log.LogError($"[LateJoinManager][DeathSync] Error reflecting isDisabled/deadSet for {nickname}: {ex}"); }
-            if (isDisabled || isDeadSet) { Log.LogInfo($"[LateJoinManager][DeathSync] Player {nickname} is already dead/disabled on host. No PlayerDeathRPC needed."); return; }
-            try { Log.LogInfo($"[LateJoinManager][DeathSync] Sending PlayerDeathRPC for {nickname} (was previously dead)."); pv.RPC("PlayerDeathRPC", RpcTarget.AllBuffered, -1); }
-            catch (Exception ex) { Log.LogError($"[LateJoinManager][DeathSync] Error sending PlayerDeathRPC for {nickname}: {ex}"); }
-        }
-        else Log.LogDebug($"[LateJoinManager][DeathSync] Player {nickname} status is {status}. No death sync needed.");
     }
     #endregion
 }

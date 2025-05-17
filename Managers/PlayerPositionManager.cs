@@ -14,10 +14,19 @@ namespace LATE.Managers;
 internal static class PhotonPlayerExtensions
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static bool TryGetValidUserId(this Player player, out string userId)
+    public static bool TryGetValidUserId(this Player player, out string userId, bool logWarningIfInvalid = true)
     {
         userId = player?.UserId ?? string.Empty;
-        return !string.IsNullOrEmpty(userId);
+        bool isValid = !string.IsNullOrEmpty(userId);
+        if (!isValid && logWarningIfInvalid && player != null) // Avoid logging if player itself is null
+        {
+            LatePlugin.Log.LogWarning($"[PhotonPlayerExtensions] TryGetValidUserId: Player '{player.NickName}' (ActorNr: {player.ActorNumber}, IsInactive: {player.IsInactive}) has an invalid or empty UserId ('{userId}'). This will break L.A.T.E. state tracking.");
+        }
+        else if (!isValid && logWarningIfInvalid && player == null)
+        {
+            LatePlugin.Log.LogWarning($"[PhotonPlayerExtensions] TryGetValidUserId: Player object itself is null.");
+        }
+        return isValid;
     }
 }
 

@@ -1,12 +1,13 @@
 // File: L.A.T.E/Managers/LevelSyncManager.cs
+using LATE.Core;
+using LATE.Utilities;
+using MonoMod.Utils;
 using Photon.Pun;
 using Photon.Realtime;
 using System;
 using System.Collections;
 using UnityEngine;
 using Object = UnityEngine.Object; // Alias for UnityEngine.Object
-using LATE.Core;
-using LATE.Utilities;
 
 namespace LATE.Managers;
 
@@ -179,6 +180,7 @@ internal static class LevelSyncManager
         string targetNickname = targetPlayer?.NickName ?? $"ActorNr {targetPlayer?.ActorNumber ?? -1}";
         Log.LogInfo($"[LevelSyncManager][EPSync] Starting for {targetNickname}.");
 
+        #region Sanity / reflection checks
         if (RoundDirector.instance == null ||
             ReflectionCache.ExtractionPoint_CurrentStateField == null ||
             ReflectionCache.RoundDirector_ExtractionPointActiveField == null ||
@@ -190,8 +192,11 @@ internal static class LevelSyncManager
             Log.LogError("[LevelSyncManager][EPSync] Critical instance or reflection field missing from ReflectionCache. Aborting.");
             return;
         }
+        #endregion
 
         ExtractionPoint[] allExtractionPoints = Object.FindObjectsOfType<ExtractionPoint>(true);
+
+        /* ---------- grab host-side state ---------- */
         int hostSurplus;
         bool isAnyEpActiveOnHost;
         ExtractionPoint? currentActiveEpOnHost;
@@ -204,12 +209,12 @@ internal static class LevelSyncManager
 
             if (isAnyEpActiveOnHost && currentActiveEpOnHost == null)
             {
-                Log.LogWarning("[LevelSyncManager][EPSync] Host EP state inconsistent: Active but current EP is null. Treating as inactive.");
+                Log.LogWarning("[LevelSyncManager][EPSync] Host EP state inconsistent: Active flag ON but current EP is null. Treating as inactive.");
                 isAnyEpActiveOnHost = false;
             }
             else if (!isAnyEpActiveOnHost && currentActiveEpOnHost != null)
             {
-                Log.LogWarning("[LevelSyncManager][EPSync] Host EP state inconsistent: Inactive but current EP is set. Clearing current EP.");
+                Log.LogWarning("[LevelSyncManager][EPSync] Host EP state inconsistent: Active flag OFF but current EP set. Clearing pointer.");
                 currentActiveEpOnHost = null;
             }
         }
@@ -228,8 +233,15 @@ internal static class LevelSyncManager
 
         Log.LogInfo($"[LevelSyncManager][EPSync] Host EP Status for {targetNickname} - Active: {isAnyEpActiveOnHost}, Current EP: '{currentActiveEpOnHost?.name ?? "None"}', Surplus: {hostSurplus}");
 
+        /* -----------------------------------------------------------------
+         * PASS #0   : keep a reference to ANY PhotonView (for Unlock RPC)
+         * PASS #1   : every non-active EP  (Idle / Complete / Shop)
+         * PASS #2   : active EP  (Activate → HaulGoalSet → State.Active)
+         * ----------------------------------------------------------------*/
         PhotonView? firstEpPvForGlobalUnlock = null;
+        var postponedActive = new List<(ExtractionPoint ep, PhotonView pv)>();
 
+        #region PASS #1 – non-active EPs
         if (allExtractionPoints != null)
         {
             foreach (ExtractionPoint ep in allExtractionPoints)
@@ -241,74 +253,97 @@ internal static class LevelSyncManager
 
                 if (firstEpPvForGlobalUnlock == null) firstEpPvForGlobalUnlock = pv;
 
+                ExtractionPoint.State hostState;
+                bool isShop;
                 try
                 {
-                    ExtractionPoint.State hostState = ReflectionCache.ExtractionPoint_CurrentStateField.GetValue(ep) as ExtractionPoint.State? ?? ExtractionPoint.State.Idle;
-                    bool isThisTheShopEP = ReflectionCache.ExtractionPoint_IsShopField.GetValue(ep) as bool? ?? false;
+                    hostState = ReflectionCache.ExtractionPoint_CurrentStateField.GetValue(ep) as ExtractionPoint.State? ?? ExtractionPoint.State.Idle;
+                    isShop = ReflectionCache.ExtractionPoint_IsShopField.GetValue(ep) as bool? ?? false;
+                }
+                catch (Exception ex)
+                {
+                    Log.LogError($"[LevelSyncManager][EPSync] Reflection error reading EP '{ep.name}': {ex}");
+                    continue;
+                }
 
-                    if (isAnyEpActiveOnHost && currentActiveEpOnHost != null && ep == currentActiveEpOnHost && !isThisTheShopEP)
+                bool isThisActiveOne = isAnyEpActiveOnHost &&
+                                       currentActiveEpOnHost != null &&
+                                       ep == currentActiveEpOnHost &&
+                                       !isShop;
+
+                /* --------- postpone the active EP --------- */
+                if (isThisActiveOne)
+                {
+                    postponedActive.Add((ep, pv));
+                    continue;
+                }
+
+                /* ------------- NON-ACTIVE logic ------------- */
+                try
+                {
+                    Log.LogInfo($"[LevelSyncManager][EPSync] (Non-Active) Syncing EP '{ep.name}' as {hostState}.");
+
+                    /* 1) its actual state */
+                    pv.RPC("StateSetRPC", targetPlayer, hostState);
+                    /* 2) global surplus */
+                    pv.RPC("ExtractionPointSurplusRPC", targetPlayer, hostSurplus);
+
+                    /* 3) lock idle EPs if another EP is active */
+                    if (isAnyEpActiveOnHost &&
+                        currentActiveEpOnHost != null &&
+                        hostState == ExtractionPoint.State.Idle &&
+                        !isShop)
                     {
-                        // This is the Active EP on the host.
-                        Log.LogInfo($"[LevelSyncManager][EPSync] Processing ACTIVE EP '{ep.name}' for {targetPlayer.NickName}.");
-
-                        // Step 1: Trigger the official activation path via RoundDirector.
-                        // This sets RoundDirector flags and calls ButtonPress() on the EP.
-                        // ButtonPress() should call StateSet(State.Active) if the EP is Idle (which it is on join).
-                        Log.LogInfo($"[LevelSyncManager][EPSync] Sending 'ExtractionPointActivateRPC' (via RoundDirector) for EP '{ep.name}' (ViewID: {pv.ViewID}) to {targetPlayer.NickName}.");
-                        roundDirectorPv.RPC("ExtractionPointActivateRPC", targetPlayer, pv.ViewID);
-
-                        // Step 2: Send the authoritative HaulGoalSetRPC.
-                        // This corrects the haul goal after StateActive() might have set a preliminary one.
-                        bool hostGoalFetched = ReflectionCache.ExtractionPoint_HaulGoalFetchedField.GetValue(ep) as bool? ?? false;
-                        if (hostGoalFetched && ep.haulGoal > 0)
-                        {
-                            Log.LogInfo($"[LevelSyncManager][EPSync] Sending 'HaulGoalSetRPC' for active EP '{ep.name}' to {targetPlayer.NickName} with goal {ep.haulGoal}.");
-                            pv.RPC("HaulGoalSetRPC", targetPlayer, ep.haulGoal);
-                        }
-                        else
-                        {
-                            if (!hostGoalFetched) Log.LogWarning($"[LevelSyncManager][EPSync] HaulGoal not fetched for active EP '{ep.name}'. 'HaulGoalSetRPC' not sent to {targetPlayer.NickName}.");
-                            else if (ep.haulGoal <= 0) Log.LogWarning($"[LevelSyncManager][EPSync] HaulGoal is {ep.haulGoal} for active EP '{ep.name}'. 'HaulGoalSetRPC' not sent to {targetPlayer.NickName}.");
-                        }
-
-                        // Step 3: Explicitly send StateSetRPC(State.Active) *last*.
-                        // This is a failsafe to ensure the state is definitely Active after everything else.
-                        // It might be redundant but shouldn't cause issues if StateActive() init already ran.
-                        Log.LogInfo($"[LevelSyncManager][EPSync] Explicitly sending 'StateSetRPC(Active)' for active EP '{ep.name}' to {targetPlayer.NickName}.");
-                        pv.RPC("StateSetRPC", targetPlayer, ExtractionPoint.State.Active);
-
-                        // Always sync surplus for all EPs, using the global surplus value.
-                        pv.RPC("ExtractionPointSurplusRPC", targetPlayer, hostSurplus);
-
-                    }
-                    else // This is NOT the Active EP on the host (or no EP is active)
-                    {
-                        Log.LogInfo($"[LevelSyncManager][EPSync] Processing NON-ACTIVE EP '{ep.name}' (Host State: {hostState}) for {targetPlayer.NickName}.");
-                        // Sync its actual state
-                        pv.RPC("StateSetRPC", targetPlayer, hostState);
-
-                        // Always sync surplus for all EPs.
-                        pv.RPC("ExtractionPointSurplusRPC", targetPlayer, hostSurplus);
-
-                        // If an EP *is* active elsewhere and this one is Idle, deny it.
-                        if (isAnyEpActiveOnHost && currentActiveEpOnHost != null && hostState == ExtractionPoint.State.Idle && !isThisTheShopEP)
-                        {
-                            Log.LogInfo($"[LevelSyncManager][EPSync] Denying idle EP '{ep.name}' for {targetPlayer.NickName} as another EP is active.");
-                            pv.RPC("ButtonDenyRPC", targetPlayer);
-                        }
-                        else
-                        {
-                            Log.LogInfo($"[LevelSyncManager][EPSync] Not denying EP '{ep.name}'. State is {hostState}, IsShop: {isThisTheShopEP}, IsAnyEpActive: {isAnyEpActiveOnHost}.");
-                        }
+                        Log.LogInfo($"[LevelSyncManager][EPSync] Denying idle EP '{ep.name}' for {targetNickname} (another EP active).");
+                        pv.RPC("ButtonDenyRPC", targetPlayer);
                     }
                 }
                 catch (Exception ex)
                 {
-                    Log.LogError($"[LevelSyncManager][EPSync] RPC Error for EP '{ep.name}' for {targetPlayer.NickName}: {ex}");
+                    Log.LogError($"[LevelSyncManager][EPSync] RPC error for NON-ACTIVE EP '{ep.name}' -> {targetNickname}: {ex}");
                 }
             }
         }
+        #endregion PASS #1
 
+        #region PASS #2 – active EP (activate → haulGoal → state.active)
+        foreach ((ExtractionPoint ep, PhotonView pv) in postponedActive)
+        {
+            try
+            {
+                Log.LogInfo($"[LevelSyncManager][EPSync] (ACTIVE) Processing EP '{ep.name}' for {targetNickname}.");
+
+                /* A) official activation path (triggers round-director bookkeeping & EP.ButtonPress) */
+                Log.LogInfo($"[LevelSyncManager][EPSync]   ➜ ExtractionPointActivateRPC (ViewID {pv.ViewID})");
+                roundDirectorPv.RPC("ExtractionPointActivateRPC", targetPlayer, pv.ViewID);
+
+                /* B) authoritative haul goal */
+                bool hostGoalFetched = ReflectionCache.ExtractionPoint_HaulGoalFetchedField.GetValue(ep) as bool? ?? false;
+                if (hostGoalFetched && ep.haulGoal > 0)
+                {
+                    Log.LogInfo($"[LevelSyncManager][EPSync]   ➜ HaulGoalSetRPC (goal = {ep.haulGoal})");
+                    pv.RPC("HaulGoalSetRPC", targetPlayer, ep.haulGoal);
+                }
+                else
+                {
+                    Log.LogWarning($"[LevelSyncManager][EPSync]   (Skipped HaulGoalSetRPC) goalFetched={hostGoalFetched}, goal={ep.haulGoal}");
+                }
+
+                /* C) ensure final state == Active  (last thing the client sees) */
+                Log.LogInfo($"[LevelSyncManager][EPSync]   ➜ StateSetRPC(Active)");
+                pv.RPC("StateSetRPC", targetPlayer, ExtractionPoint.State.Active);
+
+                /* D) global surplus (safe to re-send) */
+                pv.RPC("ExtractionPointSurplusRPC", targetPlayer, hostSurplus);
+            }
+            catch (Exception ex)
+            {
+                Log.LogError($"[LevelSyncManager][EPSync] RPC error for ACTIVE EP '{ep.name}' -> {targetNickname}: {ex}");
+            }
+        }
+        #endregion PASS #2
+
+        /* ---------- Unlock all buttons if NO EP active on host ---------- */
         if (!isAnyEpActiveOnHost && firstEpPvForGlobalUnlock != null)
         {
             try
@@ -321,6 +356,7 @@ internal static class LevelSyncManager
                 Log.LogError($"[LevelSyncManager][EPSync] Failed global ExtractionPointsUnlockRPC for {targetNickname}: {ex}");
             }
         }
+
         Log.LogInfo($"[LevelSyncManager][EPSync] Finished for {targetNickname}.");
     }
     #endregion

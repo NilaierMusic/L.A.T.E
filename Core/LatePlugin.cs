@@ -38,10 +38,12 @@ internal sealed class LatePlugin : BaseUnityPlugin
 
     private void Awake()
     {
-        if (_initialised) return;            // protect against double-Awake
+        if (_initialised) return;
         _initialised = true;
 
+        // Instance = this; // Optional
         Log = Logger;
+        CoroutineHelper.SetLatePluginInstance(this); // Register with CoroutineHelper
         _harmony = new Harmony(GUID);
 
         Log.LogInfo($"{LogPrefix} {NAME} v{VERSION} loading …");

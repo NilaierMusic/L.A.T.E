@@ -109,6 +109,7 @@ namespace LATE.Core
 
                 // Player Systems
                 _harmonyInstance.PatchAll(typeof(LATE.Patches.Player.PlayerAvatarPatches));
+                _harmonyInstance.PatchAll(typeof(LATE.Patches.Player.PlayerControllerPatches));
                 _harmonyInstance.PatchAll(typeof(LATE.Patches.Player.NetworkManagerPatches));
 
                 // Object Systems

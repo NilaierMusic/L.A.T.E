@@ -1,75 +1,89 @@
 ﻿// File: L.A.T.E/Managers/PlayerStateManager.cs
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
-
 using Photon.Realtime;
-
-using LATE.Core;        // LatePlugin.Log
-using LATE.DataModels;  // PlayerStatus
+using LATE.Core;
+using LATE.DataModels;
+using System.Text; // For StringBuilder
 
 namespace LATE.Managers;
 
-/// <summary>
-/// Tracks each player’s life-state (Alive / Dead) for the current level so that the host
-/// knows whether a late-joiner should spawn alive or be killed, depending on config.
-/// </summary>
 internal static class PlayerStateManager
 {
     private const string LogPrefix = "[PlayerState]";
     private const int InitialCapacity = 8;
-
-    // Key: Photon UserId  →  Value: PlayerStatus
-    private static readonly Dictionary<string, PlayerStatus> _playerStatuses = new(InitialCapacity);
-
-    #region Internal helper --------------------------------------------------------------------
+    private static readonly Dictionary<string, PlayerSessionData> _playerSessionStates = new(InitialCapacity);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void SetStatus(Player player, PlayerStatus status, string logHint)
+    private static void SetSessionState(Player player, PlayerSessionData sessionData, string logHint)
     {
-        if (!player.TryGetValidUserId(out var userId)) return;
+        if (!player.TryGetValidUserId(out var userId)) // Defaults to logWarningIfInvalid = true
+        {
+            LatePlugin.Log.LogError($"{LogPrefix} SetSessionState: Critical - Could not get valid UserId for player '{player?.NickName}'. State NOT saved.");
+            return;
+        }
 
-        _playerStatuses[userId] = status;
-        LatePlugin.Log.LogInfo($"{LogPrefix} {logHint} '{player.NickName}' (ID:{userId}) → {status}");
+        _playerSessionStates[userId] = sessionData;
+        LatePlugin.Log.LogInfo($"{LogPrefix} {logHint} '{player.NickName}' (ID:{userId}) → {sessionData.Status}{(sessionData.Status == PlayerLifeStatus.Dead ? $" (EnemyIdx: {sessionData.DeathEnemyIndex})" : "")}");
     }
 
-    #endregion
+    public static void MarkPlayerDead(Player player, int enemyIndex) =>
+        SetSessionState(player, new PlayerSessionData(PlayerLifeStatus.Dead, enemyIndex), "Marked");
 
-
-    #region Public API -------------------------------------------------------------------------
-
-    /// <summary>Marks <paramref name="player"/> as dead for the current level.</summary>
-    public static void MarkPlayerDead(Player player) =>
-        SetStatus(player, PlayerStatus.Dead, "Marked");
-
-    /// <summary>
-    /// Marks <paramref name="player"/> as alive.  
-    /// If the player was previously dead this counts as a revival.
-    /// </summary>
     public static void MarkPlayerAlive(Player player)
     {
         if (!player.TryGetValidUserId(out var userId)) return;
-
-        _playerStatuses.TryGetValue(userId, out var current);
-
-        if (current == PlayerStatus.Alive) return;   // already alive
-
-        string suffix = current == PlayerStatus.Dead ? "Revived" : "Marked initial";
-        SetStatus(player, PlayerStatus.Alive, suffix);
+        _playerSessionStates.TryGetValue(userId, out var currentData);
+        if (currentData.Status == PlayerLifeStatus.Alive) return;
+        string suffix = currentData.Status == PlayerLifeStatus.Dead ? "Revived" : "Marked initial";
+        SetSessionState(player, new PlayerSessionData(PlayerLifeStatus.Alive), suffix);
     }
 
-    /// <summary>Returns the current life-status of <paramref name="player"/>.</summary>
-    public static PlayerStatus GetPlayerStatus(Player player) =>
-        player.TryGetValidUserId(out var userId) &&
-        _playerStatuses.TryGetValue(userId, out var status)
-            ? status
-            : PlayerStatus.Unknown;
-
-    /// <summary>Clears all tracked statuses (call on new level load).</summary>
-    public static void ResetPlayerStatuses()
+    public static PlayerLifeStatus GetPlayerLifeStatus(Player player)
     {
-        _playerStatuses.Clear();
-        LatePlugin.Log.LogInfo($"{LogPrefix} Resetting all tracked player statuses for new level.");
+        if (!player.TryGetValidUserId(out var userId))
+        {
+            LatePlugin.Log.LogWarning($"{LogPrefix} GetPlayerLifeStatus: Could not get valid UserId for player '{player?.NickName ?? "NULL_PLAYER"}'. Returning Unknown.");
+            return PlayerLifeStatus.Unknown;
+        }
+
+        // Diagnostic Logging:
+        var sb = new StringBuilder();
+        sb.AppendLine($"{LogPrefix} GetPlayerLifeStatus: Querying for UserId '{userId}' (Player: '{player.NickName}', ActorNr: {player.ActorNumber}). Current _playerSessionStates ({_playerSessionStates.Count} entries):");
+        foreach (var kvp in _playerSessionStates)
+        {
+            sb.AppendLine($"  - Key (UserId): '{kvp.Key}', Status: {kvp.Value.Status}, EnemyIdx: {kvp.Value.DeathEnemyIndex}");
+        }
+        LatePlugin.Log.LogDebug(sb.ToString());
+
+        if (_playerSessionStates.TryGetValue(userId, out var data))
+        {
+            LatePlugin.Log.LogDebug($"{LogPrefix} GetPlayerLifeStatus: Found status for UserId '{userId}': {data.Status}");
+            return data.Status;
+        }
+        else
+        {
+            LatePlugin.Log.LogDebug($"{LogPrefix} GetPlayerLifeStatus: No status found for UserId '{userId}'. Returning Unknown.");
+            return PlayerLifeStatus.Unknown;
+        }
     }
 
-    #endregion
+    public static bool TryGetPlayerDeathEnemyIndex(Player player, out int enemyIndex)
+    {
+        enemyIndex = -1;
+        if (player.TryGetValidUserId(out var userId) &&
+            _playerSessionStates.TryGetValue(userId, out var data) &&
+            data.Status == PlayerLifeStatus.Dead)
+        {
+            enemyIndex = data.DeathEnemyIndex;
+            return true;
+        }
+        return false;
+    }
+
+    public static void ResetPlayerSessionStates()
+    {
+        _playerSessionStates.Clear();
+        LatePlugin.Log.LogInfo($"{LogPrefix} Resetting all tracked player session states for new level.");
+    }
 }

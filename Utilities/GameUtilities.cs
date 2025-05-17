@@ -243,6 +243,26 @@ namespace LATE.Utilities
         }
         #endregion
 
+        public static bool IsSceneChangeInProgress()
+        {
+            if (RunManager.instance != null && ReflectionCache.RunManager_RestartingField != null)
+            {
+                try
+                {
+                    // 'restarting' is true while the game is in the process of changing levels/restarting a scene.
+                    return ReflectionCache.RunManager_RestartingField.GetValue(RunManager.instance) as bool? ?? false;
+                }
+                catch (Exception ex)
+                {
+                    LatePlugin.Log.LogWarning($"[GameUtilities] Error reflecting RunManager.restarting: {ex.Message}. Assuming scene change NOT in progress for safety.");
+                    return false; // Default to false if reflection fails
+                }
+            }
+            // If RunManager.instance is null, it could be very early in startup, main menu, or very late in shutdown.
+            // Generally safer to assume a scene change is NOT in progress in these cases.
+            return false;
+        }
+
         #region ─── Shuffle Extension ─────────────────────────────────────────────────
         private static readonly System.Random Rng = new System.Random();
         public static void Shuffle<T>(this IList<T> list)

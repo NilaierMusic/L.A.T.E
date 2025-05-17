@@ -33,32 +33,54 @@ internal static class PhotonUtilities
             LatePlugin.Log.LogWarning($"{LogPrefix} ClearPhotonCache called with NULL PhotonView.");
             return;
         }
+        if (pv.InstantiationId <= 0)
+        {
+            LatePlugin.Log.LogWarning($"{LogPrefix} ClearPhotonCache called for PhotonView with no InstantiationId (ViewID:{pv.ViewID}). Scene object?");
+            return;
+        }
+        ClearPhotonCacheByInstantiationId(pv.InstantiationId, pv.ViewID);
+    }
+
+    // New overload
+    public static void ClearPhotonCacheByInstantiationId(int instantiationId, int sourceViewIdForLog = 0)
+    {
+        if (instantiationId <= 0)
+        {
+            LatePlugin.Log.LogWarning($"{LogPrefix} ClearPhotonCacheByInstantiationId called with invalid InstantiationId: {instantiationId}.");
+            return;
+        }
 
         try
         {
+            // These are static fields, so fetching them each time is okay.
             var removeFilter = ReflectionCache.PhotonNetwork_RemoveFilterField?.GetValue(null) as Hashtable;
             var keyByte7 = ReflectionCache.PhotonNetwork_KeyByteSevenField?.GetValue(null);
+            // IMPORTANT: PhotonNetwork.ServerCleanOptions is a shared instance.
+            // We must set its CachingOption specifically for this call.
             var cleanOpts = ReflectionCache.PhotonNetwork_ServerCleanOptionsField?.GetValue(null) as RaiseEventOptions;
             var raiseEvent = ReflectionCache.PhotonNetwork_RaiseEventInternalMethod;
 
             if (removeFilter == null || keyByte7 == null || cleanOpts == null || raiseEvent == null)
             {
-                LatePlugin.Log.LogError($"{LogPrefix} Reflection failure – Photon internals missing. Abort.");
+                LatePlugin.Log.LogError($"{LogPrefix} Reflection failure – Photon internals missing for ClearPhotonCacheByInstantiationId. Abort.");
                 return;
             }
 
-            removeFilter[keyByte7] = pv.InstantiationId;
-            cleanOpts.CachingOption = EventCaching.RemoveFromRoomCache;
+            // Prepare the filter for the specific instantiation ID
+            removeFilter[keyByte7] = instantiationId;
+
+            // Set the caching option for this specific operation
+            cleanOpts.CachingOption = EventCaching.RemoveFromRoomCache; // This modifies the static instance for this call.
 
             raiseEvent.Invoke(
                 null,
                 new object[] { (byte)202 /*CleanPhotonView*/, removeFilter, cleanOpts, SendOptions.SendReliable });
 
-            LatePlugin.Log.LogDebug($"{LogPrefix} Sent RemoveFromRoomCache (InstId:{pv.InstantiationId}, ViewID:{pv.ViewID}).");
+            LatePlugin.Log.LogDebug($"{LogPrefix} Sent RemoveFromRoomCache (InstId:{instantiationId}, OrigViewID for log:{sourceViewIdForLog}).");
         }
         catch (Exception ex)
         {
-            LatePlugin.Log.LogError($"{LogPrefix} ClearPhotonCache exception for InstId {pv.InstantiationId} (ViewID:{pv.ViewID}): {ex}");
+            LatePlugin.Log.LogError($"{LogPrefix} ClearPhotonCacheByInstantiationId exception for InstId {instantiationId} (OrigViewID for log:{sourceViewIdForLog}): {ex}");
         }
     }
 

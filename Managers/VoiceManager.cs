@@ -24,11 +24,11 @@ namespace LATE.Managers
                 if (!string.IsNullOrEmpty(contextLog)) LatePlugin.Log.LogDebug($"{LogPrefix} ({contextLog}): Not MasterClient. Skipping voice operation.");
                 return false;
             }
-            if (PhotonNetwork.CurrentRoom == null || PhotonNetwork.CurrentRoom.PlayerCount <= 1)
-            {
-                if (!string.IsNullOrEmpty(contextLog)) LatePlugin.Log.LogDebug($"{LogPrefix} ({contextLog}): Alone or not in a room. Skipping voice operation.");
-                return false;
-            }
+            // if (PhotonNetwork.CurrentRoom == null || PhotonNetwork.CurrentRoom.PlayerCount <= 1)
+            // {
+            //    if (!string.IsNullOrEmpty(contextLog)) LatePlugin.Log.LogDebug($"{LogPrefix} ({contextLog}): Alone or not in a room. Skipping voice operation.");
+            //    return false;
+            // }
             if (SemiFunc.RunIsLobbyMenu())
             {
                 if (!string.IsNullOrEmpty(contextLog)) LatePlugin.Log.LogDebug($"{LogPrefix} ({contextLog}): In LobbyMenu. Skipping voice operation.");
@@ -110,7 +110,7 @@ namespace LATE.Managers
                 if (playerToBroadcastAbout == null || playerToBroadcastAbout.ActorNumber == newLateJoiner.ActorNumber) continue;
                 PlayerAvatar? avatar = GameUtilities.FindPlayerAvatar(playerToBroadcastAbout);
                 if (avatar == null) { LatePlugin.Log.LogDebug($"{LogPrefix} SendToLateJoiner: Null avatar for {playerToBroadcastAbout.NickName}."); continue; }
-                if (PlayerStateManager.GetPlayerStatus(playerToBroadcastAbout) == PlayerStatus.Dead)
+                if (PlayerStateManager.GetPlayerLifeStatus(playerToBroadcastAbout) == PlayerLifeStatus.Dead)
                 {
                     LatePlugin.Log.LogInfo($"{LogPrefix} SendToLateJoiner: {playerToBroadcastAbout.NickName} is dead. Skipping send to {newLateJoiner.NickName}.");
                     continue;
@@ -147,7 +147,7 @@ namespace LATE.Managers
             if (lateJoiner == null || lateJoinerAvatar == null) return;
 
             LatePlugin.Log.LogInfo($"{LogPrefix} Broadcasting new late joiner {lateJoiner.NickName}'s voice link to ALL.");
-            if (PlayerStateManager.GetPlayerStatus(lateJoiner) == PlayerStatus.Dead)
+            if (PlayerStateManager.GetPlayerLifeStatus(lateJoiner) == PlayerLifeStatus.Dead)
             {
                 LatePlugin.Log.LogInfo($"{LogPrefix} BroadcastLateJoinerToAll: {lateJoiner.NickName} is dead. Skipping broadcast.");
                 TryCompleteLateJoinerVoiceTask(lateJoiner, $"is dead on host for {lateJoiner.NickName}");
@@ -186,7 +186,7 @@ namespace LATE.Managers
             if (avatar == null) return;
             PhotonView? avatarPV = PhotonUtilities.GetPhotonView(avatar);
             if (avatarPV == null || avatarPV.Owner == null) return;
-            if (PlayerStateManager.GetPlayerStatus(avatarPV.Owner) == PlayerStatus.Dead) return;
+            if (PlayerStateManager.GetPlayerLifeStatus(avatarPV.Owner) == PlayerLifeStatus.Dead) return;
             EnsurePlayerVoiceLinkIsBroadcastToAll(avatar, "Initial/periodic check");
         }
 
@@ -205,19 +205,67 @@ namespace LATE.Managers
         public static void Host_OnPlayerLeftRoom(Player leftPlayer)
         {
             if (!PhotonUtilities.IsRealMasterClient() || leftPlayer == null) return;
-            List<int> avatarViewIDsToRemove = new List<int>();
-            foreach (var entry in _hostSentValidRpcForAvatarThisScene)
+
+            // If a scene change is actively happening, it's safer to skip this.
+            // ResetPerSceneStates() will be called by RunManager_ChangeLevelHook anyway.
+            if (GameUtilities.IsSceneChangeInProgress())
             {
-                PhotonView? pv = PhotonView.Find(entry.Key);
-                if (pv == null || pv.Owner == null || pv.Owner.ActorNumber == leftPlayer.ActorNumber)
+                LatePlugin.Log.LogDebug($"{LogPrefix} Host_OnPlayerLeftRoom: Scene change in progress. Skipping cleanup for {leftPlayer.NickName}. ResetPerSceneStates will handle general cleanup.");
+                return;
+            }
+
+            LatePlugin.Log.LogDebug($"{LogPrefix} Host_OnPlayerLeftRoom: Processing player {leftPlayer.NickName} (ActorNr: {leftPlayer.ActorNumber}).");
+
+            List<int> avatarViewIDsToRemove = new List<int>();
+            // Create a temporary list of keys to iterate over, to avoid issues if the dictionary structure changes unexpectedly (though unlikely here)
+            // Or, iterate directly if confident _hostSentValidRpcForAvatarThisScene is not modified by other threads/callbacks during this loop.
+            // For this specific case, building a list of IDs to remove is fine.
+            foreach (var entry in _hostSentValidRpcForAvatarThisScene) // Iterating a Dictionary's KVP is usually safe for reads
+            {
+                PhotonView? pv = null;
+                try
+                {
+                    // PhotonView.Find can be problematic if views are being destroyed or scene is unstable.
+                    // The IsSceneChangeInProgress guard above should mitigate this significantly.
+                    pv = PhotonView.Find(entry.Key);
+                }
+                catch (Exception ex)
+                {
+                    // This catch is for unexpected errors from PhotonView.Find itself.
+                    LatePlugin.Log.LogWarning($"{LogPrefix} Host_OnPlayerLeftRoom: Exception finding PhotonView for ID {entry.Key} (Player: {leftPlayer.NickName}): {ex.Message}. Marking for removal.");
+                    avatarViewIDsToRemove.Add(entry.Key);
+                    continue;
+                }
+
+                if (pv == null) // PhotonView with this ID no longer exists in the scene.
                 {
                     avatarViewIDsToRemove.Add(entry.Key);
+                    LatePlugin.Log.LogDebug($"{LogPrefix} Host_OnPlayerLeftRoom: Avatar ViewID {entry.Key} (associated with {leftPlayer.NickName}'s departure) not found. Marking for removal from RPC tracking.");
+                    continue;
+                }
+
+                // If the PhotonView exists, check if it belongs to the player who left.
+                // pv.Owner can be null if the owner already left and Photon cleaned up some info.
+                if (pv.Owner == null || pv.Owner.ActorNumber == leftPlayer.ActorNumber)
+                {
+                    avatarViewIDsToRemove.Add(entry.Key);
+                    // Log with care, pv.Owner might be null
+                    string ownerInfo = pv.Owner != null ? $"Owner: {pv.Owner.NickName} (ActorNr: {pv.Owner.ActorNumber})" : "Owner: Null";
+                    LatePlugin.Log.LogDebug($"{LogPrefix} Host_OnPlayerLeftRoom: Avatar ViewID {entry.Key} ({ownerInfo}) matches leaving player {leftPlayer.NickName} or owner is null. Marking for removal.");
                 }
             }
-            foreach (int viewID in avatarViewIDsToRemove)
+
+            if (avatarViewIDsToRemove.Count > 0)
             {
-                _hostSentValidRpcForAvatarThisScene.Remove(viewID);
-                LatePlugin.Log.LogInfo($"{LogPrefix} Host_OnPlayerLeftRoom: Removed Avatar ViewID {viewID} from RPC tracking for leaving player {leftPlayer.NickName}.");
+                LatePlugin.Log.LogInfo($"{LogPrefix} Host_OnPlayerLeftRoom: Removing {avatarViewIDsToRemove.Count} Avatar ViewID(s) from RPC tracking related to leaving player {leftPlayer.NickName}.");
+                foreach (int viewID in avatarViewIDsToRemove)
+                {
+                    _hostSentValidRpcForAvatarThisScene.Remove(viewID);
+                }
+            }
+            else
+            {
+                LatePlugin.Log.LogDebug($"{LogPrefix} Host_OnPlayerLeftRoom: No Avatar ViewIDs found in RPC tracking associated with leaving player {leftPlayer.NickName}.");
             }
         }
         #endregion
@@ -277,7 +325,7 @@ namespace LATE.Managers
             PhotonView? avatarPV = PhotonUtilities.GetPhotonView(avatarToBroadcast);
             if (avatarPV == null || avatarPV.Owner == null) return false;
 
-            if (PlayerStateManager.GetPlayerStatus(avatarPV.Owner) == PlayerStatus.Dead)
+            if (PlayerStateManager.GetPlayerLifeStatus(avatarPV.Owner) == PlayerLifeStatus.Dead)
             {
                 LatePlugin.Log.LogInfo($"{LogPrefix} EnsureBroadcast ({context}): {GameUtilities.GetPlayerNickname(avatarToBroadcast)} is dead. Skipping.");
                 return false;
@@ -291,7 +339,7 @@ namespace LATE.Managers
             {
                 if (_hostSentValidRpcForAvatarThisScene.TryGetValue(avatarPV.ViewID, out int sentVoicePvId) && sentVoicePvId == voiceChatPV.ViewID)
                 {
-                    LatePlugin.Log.LogDebug($"{LogPrefix} EnsureBroadcast ({context}): Link for {GameUtilities.GetPlayerNickname(avatarToBroadcast)} already sent. Confirmed.");
+                    // LatePlugin.Log.LogDebug($"{LogPrefix} EnsureBroadcast ({context}): Link for {GameUtilities.GetPlayerNickname(avatarToBroadcast)} already sent. Confirmed.");
                     return true;
                 }
 
@@ -312,7 +360,7 @@ namespace LATE.Managers
             }
             else
             {
-                LatePlugin.Log.LogDebug($"{LogPrefix} EnsureBroadcast ({context}): Voice component or PV null for {GameUtilities.GetPlayerNickname(avatarToBroadcast)}. Not sent.");
+                // LatePlugin.Log.LogDebug($"{LogPrefix} EnsureBroadcast ({context}): Voice component or PV null for {GameUtilities.GetPlayerNickname(avatarToBroadcast)}. Not sent.");
             }
             return false;
         }
@@ -356,7 +404,7 @@ namespace LATE.Managers
                 if (LateJoinManager.IsLateJoinerPendingAsyncTask(playerToBroadcastAbout.ActorNumber, LateJoinManager.LateJoinTaskType.Voice))
                 {
                     bool wasSentOrConfirmed = _hostSentValidRpcForAvatarThisScene.ContainsKey(PhotonUtilities.GetViewId(avatar));
-                    bool isAlive = PlayerStateManager.GetPlayerStatus(playerToBroadcastAbout) == PlayerStatus.Alive;
+                    bool isAlive = PlayerStateManager.GetPlayerLifeStatus(playerToBroadcastAbout) == PlayerLifeStatus.Alive;
                     if (wasSentOrConfirmed && isAlive)
                     {
                         LatePlugin.Log.LogInfo($"{LogPrefix} CompResync: Fallback L.A.T.E. voice task marked complete for {playerToBroadcastAbout.NickName}.");

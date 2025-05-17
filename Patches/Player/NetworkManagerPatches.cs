@@ -26,9 +26,9 @@ internal static class NetworkManagerPatches
             return;
         }
 
-        LatePlugin.Log.LogDebug(
-            $"[NetworkManagerPatches] Player entered room: {newPlayer?.NickName ?? "NULL"} (ActorNr: {newPlayer?.ActorNumber ?? -1}) in an active scene."
-        );
+       // LatePlugin.Log.LogDebug(
+       //    $"[NetworkManagerPatches] Player entered room: {newPlayer?.NickName ?? "NULL"} (ActorNr: {newPlayer?.ActorNumber ?? -1}) in an active scene."
+       // );
 
         if (newPlayer != null)
         {
@@ -48,67 +48,80 @@ internal static class NetworkManagerPatches
     /// </summary>
     public static void NetworkManager_OnPlayerLeftRoom_Postfix(Photon.Realtime.Player otherPlayer)
     {
-        if (otherPlayer != null)
+        if (otherPlayer == null) // Early exit for null player
         {
-            LateJoinManager.ClearPlayerTracking(otherPlayer.ActorNumber);
+            LatePlugin.Log?.LogWarning("[NetworkManagerPatches] Received null player in OnPlayerLeftRoom_Postfix.");
+            return;
         }
 
+        // Always clear L.A.T.E. specific tracking for the player.
+        // This primarily manipulates internal data structures and should be relatively safe.
+        LateJoinManager.ClearPlayerTracking(otherPlayer.ActorNumber);
+
+        // If a scene change is actively happening (e.g., RunManager.restarting is true),
+        // skip complex operations that rely on scene objects which might be in a volatile state.
+        if (GameUtilities.IsSceneChangeInProgress())
+        {
+            LatePlugin.Log.LogInfo(
+                $"[NetworkManagerPatches] Player {otherPlayer.NickName} (ActorNr: {otherPlayer.ActorNumber}) left during a scene change. " +
+                "Skipping complex avatar/enemy/voice cleanup to prevent errors. Basic L.A.T.E. tracking cleared."
+            );
+            // VoiceManager.ResetPerSceneStates() called by RunManager_ChangeLevelHook will handle general voice cleanup.
+            return;
+        }
+
+        // Proceed with more detailed cleanup if not in a scene change and mod logic is active.
         if (!GameUtilities.IsModLogicActive())
         {
             LatePlugin.Log?.LogDebug(
-                $"[NetworkManagerPatches] Player left room in disabled scene. Skipping L.A.T.E leave handling for {otherPlayer?.NickName ?? "NULL"}."
+                $"[NetworkManagerPatches] Player left room in disabled scene. Skipping L.A.T.E leave handling for {otherPlayer.NickName}."
             );
+            // Log for base game passthrough if needed, but primary L.A.T.E. logic is skipped.
+            return;
+        }
 
-            if (otherPlayer != null)
+        LatePlugin.Log.LogInfo(
+            $"[NetworkManagerPatches] Player {otherPlayer.NickName} (ActorNr: {otherPlayer.ActorNumber}) left room in active scene (not changing level)."
+        );
+
+        if (PhotonUtilities.IsRealMasterClient())
+        {
+            // Attempt to find avatar and update position
+            PlayerAvatar? avatar = GameUtilities.FindPlayerAvatar(otherPlayer);
+            if (avatar != null)
             {
-                LatePlugin.Log?.LogInfo(
-                    $"[NetworkManagerPatches][BaseGamePassthrough] Player left room: {otherPlayer.NickName} (ActorNr: {otherPlayer.ActorNumber})"
+                PlayerPositionManager.UpdatePlayerPosition(
+                    otherPlayer,
+                    avatar.transform.position,
+                    avatar.transform.rotation
                 );
             }
             else
             {
-                LatePlugin.Log?.LogWarning(
-                    "[NetworkManagerPatches][BaseGamePassthrough] Received null player in OnPlayerLeftRoom_Postfix."
+                LatePlugin.Log.LogWarning(
+                    $"[NetworkManagerPatches] Could not find PlayerAvatar for leaving player {otherPlayer.NickName} to track position (active scene, not changing level)."
                 );
             }
 
-            return;
-        }
-
-        if (otherPlayer != null)
-        {
-            LatePlugin.Log.LogInfo(
-                $"[NetworkManagerPatches] Player left room in active scene: {otherPlayer.NickName} (ActorNr: {otherPlayer.ActorNumber})"
-            );
-
-            if (PhotonUtilities.IsRealMasterClient())
+            // Notify enemies
+            try
             {
-                PlayerAvatar? avatar = GameUtilities.FindPlayerAvatar(otherPlayer);
-                if (avatar != null)
-                {
-                    PlayerPositionManager.UpdatePlayerPosition(
-                        otherPlayer,
-                        avatar.transform.position,
-                        avatar.transform.rotation
-                    );
-                }
-                else
-                {
-                    LatePlugin.Log.LogWarning(
-                        $"[NetworkManagerPatches] Could not find PlayerAvatar for leaving player {otherPlayer.NickName} to track position."
-                    );
-                }
-
                 EnemySyncManager.NotifyEnemiesOfLeavingPlayer(otherPlayer);
             }
+            catch (Exception ex)
+            {
+                LatePlugin.Log.LogError($"[NetworkManagerPatches] Error in EnemySyncManager.NotifyEnemiesOfLeavingPlayer for {otherPlayer.NickName}: {ex}");
+            }
+        }
 
+        // Handle VoiceManager cleanup for the player.
+        try
+        {
             VoiceManager.Host_OnPlayerLeftRoom(otherPlayer);
         }
-        else
+        catch (Exception ex)
         {
-            LatePlugin.Log.LogWarning(
-                "[NetworkManagerPatches] Received null player in OnPlayerLeftRoom_Postfix (active scene)."
-            );
+            LatePlugin.Log.LogError($"[NetworkManagerPatches] Error in VoiceManager.Host_OnPlayerLeftRoom for {otherPlayer.NickName}: {ex}");
         }
     }
 }

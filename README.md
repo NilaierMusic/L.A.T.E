@@ -66,9 +66,7 @@ Clients connecting **DO NOT** need this mod. If clients install it, it will like
 ## ⚙️ Configuration
 A configuration file `nilaier.late.cfg` will be generated in your `BepInEx/config` folder after running the game with the mod installed once.
 
-You can edit this file directly using a text editor, **OR** you can use an in-game configuration editor mod for easier adjustments!
-
-*Recommended:* Use [**REPOConfig** by nickklmao](https://thunderstore.io/c/repo/p/nickklmao/REPOConfig/) to edit the settings directly within the game's main menu!
+You can edit this file directly using a text editor.
 
 <details>
 <summary>Click to view all settings</summary>
@@ -93,7 +91,7 @@ You can edit this file directly using a text editor, **OR** you can use an in-ga
 
 ## 🤝 Compatibility & Testing Environment
 * Patches core game systems (networking, loading, spawning, items, enemies) using Harmony and MonoMod.
-* **Game Version:** developed & tested on both **stable and beta R.E.P.O. builds 0.1.2/0.1.2_22beta**.
+* **Game Version:** developed & tested on both **stable and beta R.E.P.O. builds 0.1.2/0.1.2_23beta**.
 * Heavy reflection: future game updates are likely to break the mod until updated.
 
 
@@ -111,8 +109,7 @@ You can edit this file directly using a text editor, **OR** you can use an in-ga
 
 ## 🤔 Known Issues
 * Spawn/Truck position glitches
-* Extraction Point value desync on high latency
-* Inventory pickup failures, visual desync, lighting oddities
+* Visual desync, lighting oddities
 * Enemy animation “T-pose” on late join
 * Brief host-side hitch when syncing many entities
 * General desync potential – `Force Level Reload` is a last resort
@@ -125,7 +122,7 @@ Found a bug? Please open an issue on the
 Include:
 1. `nilaier.late.cfg`
 2. `BepInEx/LogOutput.log`
-3. R.E.P.O. version (`0.1.2 Stable`, `0.1.2_22 Beta`, etc.)
+3. R.E.P.O. version (`0.1.2 Stable`, `0.1.2_23 Beta`, etc.)
 4. What happened
 5. Other mods in use
 

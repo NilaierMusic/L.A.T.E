@@ -70,7 +70,16 @@ internal static class ReflectionCache
     internal static readonly FieldInfo? PlayerAvatar_DeadSetField = F<PlayerAvatar>("deadSet");
     internal static readonly FieldInfo? PlayerAvatar_PlayerDeathHeadField = F<PlayerAvatar>("playerDeathHead");
     internal static readonly FieldInfo? PlayerAvatar_PhysGrabberField = F<PlayerAvatar>("physGrabber");
+    internal static readonly FieldInfo? PlayerAvatar_PlayerAvatarCollisionField = Crit<PlayerAvatar>("playerAvatarCollision");
     internal static readonly FieldInfo? PlayerAvatar_IsLocalField = F<PlayerAvatar>("isLocal");
+    internal static readonly FieldInfo? PlayerAvatar_LevelAnimationCompletedField = F<PlayerAvatar>("levelAnimationCompleted");
+    internal static readonly FieldInfo? PlayerAvatar_ClientPositionField = F<PlayerAvatar>("clientPosition");
+    internal static readonly FieldInfo? PlayerAvatar_ClientRotationField = F<PlayerAvatar>("clientRotation");
+    internal static readonly FieldInfo? PlayerAvatar_ClientPositionCurrentField = F<PlayerAvatar>("clientPositionCurrent");
+    internal static readonly FieldInfo? PlayerAvatar_ClientRotationCurrentField = F<PlayerAvatar>("clientRotationCurrent");
+
+    /* ───────────────────────  PlayerAvatarCollision  ─────────────────── */
+    internal static readonly FieldInfo? PlayerAvatarCollision_DeathHeadPositionField = F<PlayerAvatarCollision>("deathHeadPosition");
 
     /* ───────────────────────  PlayerVoiceChat  ──────────────────── */
 
