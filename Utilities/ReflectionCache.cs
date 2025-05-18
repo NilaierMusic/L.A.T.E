@@ -60,6 +60,7 @@ internal static class ReflectionCache
 
     /* ───────────────────────  PlayerAvatar  ─────────────────────── */
 
+    internal static readonly FieldInfo? PlayerAvatar_SteamIDField = F<PlayerAvatar>("steamID");
     internal static readonly FieldInfo? PlayerAvatar_SpawnedField = F<PlayerAvatar>("spawned");
     internal static readonly FieldInfo? PlayerAvatar_PhotonViewField = F<PlayerAvatar>("photonView");
     internal static readonly FieldInfo? PlayerAvatar_PlayerNameField = F<PlayerAvatar>("playerName");

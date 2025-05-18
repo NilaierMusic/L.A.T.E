@@ -1,105 +1,130 @@
 ﻿// File: L.A.T.E/Managers/PlayerPositionManager.cs
-using LATE.Core;        // LatePlugin.Log
-using LATE.DataModels;  // PlayerTransformData
+using LATE.Core;
+using LATE.DataModels;
 using Photon.Realtime;
-using System.Runtime.CompilerServices;
+using System.Collections.Generic;
 using UnityEngine;
+using LATE.Utilities; // For GameUtilities and ReflectionCache
+using System;          // For Exception
 
-namespace LATE.Managers;
-
-/// <summary>
-/// Local Photon player helper.  
-/// If it becomes broadly useful we can move it to `LATE.Utilities`.
-/// </summary>
+// Remove or comment out the old PhotonPlayerExtensions class if it's no longer broadly used
+/*
 internal static class PhotonPlayerExtensions
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool TryGetValidUserId(this Player player, out string userId, bool logWarningIfInvalid = true)
     {
-        userId = player?.UserId ?? string.Empty;
-        bool isValid = !string.IsNullOrEmpty(userId);
-        if (!isValid && logWarningIfInvalid && player != null) // Avoid logging if player itself is null
-        {
-            LatePlugin.Log.LogWarning($"[PhotonPlayerExtensions] TryGetValidUserId: Player '{player.NickName}' (ActorNr: {player.ActorNumber}, IsInactive: {player.IsInactive}) has an invalid or empty UserId ('{userId}'). This will break L.A.T.E. state tracking.");
-        }
-        else if (!isValid && logWarningIfInvalid && player == null)
-        {
-            LatePlugin.Log.LogWarning($"[PhotonPlayerExtensions] TryGetValidUserId: Player object itself is null.");
-        }
-        return isValid;
+        // ... old implementation ...
     }
 }
+*/
 
-/// <summary>
-/// Keeps track of every player’s last meaningful position (alive or death-head) within
-/// the current level.  Used by the “Spawn At Last Position” feature for re-joiners.
-/// </summary>
 internal static class PlayerPositionManager
 {
     private const string LogPrefix = "[PositionManager]";
-
+    // The dictionary key remains string, but will now store SteamID
     private static readonly Dictionary<string, PlayerTransformData> _lastTransforms = new();
 
-    #region Public API -------------------------------------------------------------------------
+    // Helper to get SteamID string from Player
+    private static bool TryGetPlayerSteamIdString(Player player, out string steamId)
+    {
+        steamId = string.Empty;
+        if (player == null)
+        {
+            LatePlugin.Log.LogWarning($"{LogPrefix} TryGetPlayerSteamIdString: Player object is null.");
+            return false;
+        }
 
-    /// <summary>
-    /// Records the latest ALIVE position for <paramref name="player"/>.
-    /// Ignored if a death-head position is already stored – that takes precedence.
-    /// </summary>
+        PlayerAvatar? avatar = GameUtilities.FindPlayerAvatar(player);
+        if (avatar == null)
+        {
+            // GameUtilities.FindPlayerAvatar already logs a warning
+            // LatePlugin.Log.LogWarning($"{LogPrefix} TryGetPlayerSteamIdString: Could not find PlayerAvatar for player '{player.NickName}' (ActorNr: {player.ActorNumber}).");
+            return false;
+        }
+
+        if (ReflectionCache.PlayerAvatar_SteamIDField == null)
+        {
+            LatePlugin.Log.LogError($"{LogPrefix} TryGetPlayerSteamIdString: ReflectionCache.PlayerAvatar_SteamIDField is null. Cannot get SteamID. Check ReflectionCache setup.");
+            return false;
+        }
+
+        try
+        {
+            object? idObj = ReflectionCache.PlayerAvatar_SteamIDField.GetValue(avatar);
+            if (idObj is string sID && !string.IsNullOrEmpty(sID))
+            {
+                steamId = sID;
+                return true;
+            }
+            // Log if steamID is null or empty after successful reflection, as this is unexpected if the field is populated.
+            LatePlugin.Log.LogWarning($"{LogPrefix} TryGetPlayerSteamIdString: PlayerAvatar.steamID for '{player.NickName}' (ActorNr: {player.ActorNumber}) is null, empty, or not a string after reflection. Value: '{idObj}', Type: '{idObj?.GetType().FullName ?? "null"}'. Waiting for game to populate it?");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            LatePlugin.Log.LogError($"{LogPrefix} TryGetPlayerSteamIdString: Exception reflecting PlayerAvatar.steamID for '{player.NickName}': {ex}");
+            return false;
+        }
+    }
+
     public static void UpdatePlayerPosition(Player player, in Vector3 position, in Quaternion rotation)
     {
-        if (!player.TryGetValidUserId(out var userId)) return;
-
-        if (_lastTransforms.TryGetValue(userId, out var existing) && existing.IsDeathHeadPosition)
+        // If the player is the MasterClient (host), don't track their position with this system.
+        // Their position is inherently current.
+        if (player != null && player.IsMasterClient)
         {
-            LatePlugin.Log.LogDebug(
-                $"{LogPrefix} Skipping normal position update for {player.NickName}; death position already tracked.");
+            // LatePlugin.Log.LogDebug($"{LogPrefix} Skipping position update for Host ({player.NickName}).");
             return;
         }
 
-        _lastTransforms[userId] = new(position, rotation, isDeathHead: false);
+        if (!TryGetPlayerSteamIdString(player, out var steamId)) return;
 
-        LatePlugin.Log.LogInfo(
-            $"{LogPrefix} Updated ALIVE position for '{player.NickName}' (ID: {userId}) to {position}");
+        if (_lastTransforms.TryGetValue(steamId, out var existing) && existing.IsDeathHeadPosition)
+        {
+            LatePlugin.Log.LogDebug(
+                $"{LogPrefix} Skipping normal position update for {player.NickName} (SteamID: {steamId}); death position already tracked.");
+            return;
+        }
+        _lastTransforms[steamId] = new(position, rotation, isDeathHead: false);
+        LatePlugin.Log.LogDebug( // Kept as Debug from previous fix
+            $"{LogPrefix} Updated ALIVE position for '{player.NickName}' (SteamID: {steamId}) to {position}");
     }
 
-    /// <summary>
-    /// Records the DEATH-HEAD position for <paramref name="player"/>. Always overwrites.
-    /// </summary>
     public static void UpdatePlayerDeathPosition(Player player, in Vector3 position, in Quaternion rotation)
     {
-        if (!player.TryGetValidUserId(out var userId)) return;
+        // If the player is the MasterClient (host), don't track their death position with this system.
+        if (player != null && player.IsMasterClient)
+        {
+            // LatePlugin.Log.LogDebug($"{LogPrefix} Skipping death position update for Host ({player.NickName}).");
+            return;
+        }
+        if (!TryGetPlayerSteamIdString(player, out var steamId)) return;
 
-        _lastTransforms[userId] = new(position, rotation, isDeathHead: true);
-
-        LatePlugin.Log.LogInfo(
-            $"{LogPrefix} Updated DEATH position for '{player.NickName}' (ID: {userId}) to {position}");
+        _lastTransforms[steamId] = new(position, rotation, isDeathHead: true);
+        LatePlugin.Log.LogDebug( // Kept as Debug from previous fix
+            $"{LogPrefix} Updated DEATH position for '{player.NickName}' (SteamID: {steamId}) to {position}");
     }
 
-    /// <summary>Attempts to fetch the last stored transform for <paramref name="player"/>.</summary>
     public static bool TryGetLastTransform(Player player, out PlayerTransformData transformData)
     {
         transformData = default;
-        return player.TryGetValidUserId(out var userId) &&
-               _lastTransforms.TryGetValue(userId, out transformData);
+        return TryGetPlayerSteamIdString(player, out var steamId) &&
+               _lastTransforms.TryGetValue(steamId, out transformData);
     }
 
-    /// <summary>Removes any stored transform for <paramref name="player"/>.</summary>
     public static void ClearPlayerPositionRecord(Player player)
     {
-        if (!player.TryGetValidUserId(out var userId)) return;
+        if (!TryGetPlayerSteamIdString(player, out var steamId)) return;
 
-        if (_lastTransforms.Remove(userId))
+        if (_lastTransforms.Remove(steamId))
             LatePlugin.Log.LogInfo(
-                $"{LogPrefix} Cleared position record for '{player.NickName}' (ID: {userId}).");
+                $"{LogPrefix} Cleared position record for '{player.NickName}' (SteamID: {steamId}).");
     }
 
-    /// <summary>Clears every stored transform (called on level load).</summary>
     public static void ResetPositions()
     {
         _lastTransforms.Clear();
-        LatePlugin.Log.LogInfo($"{LogPrefix} Reset all tracked player positions for new level.");
+        LatePlugin.Log.LogInfo($"{LogPrefix} Reset all tracked player positions (SteamID based) for new level.");
     }
-
-    #endregion
 }

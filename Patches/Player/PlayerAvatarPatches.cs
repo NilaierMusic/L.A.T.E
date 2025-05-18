@@ -35,29 +35,12 @@ internal static class PlayerAvatarPatches
 
     [HarmonyPatch(typeof(PlayerAvatar), "SpawnRPC")]
     [HarmonyPrefix]
-    public static void PlayerAvatar_SpawnRPC_Prefix(PlayerAvatar __instance, ref Vector3 position, ref Quaternion rotation, PhotonMessageInfo info)
+    public static void PlayerAvatar_SpawnRPC_Prefix(PlayerAvatar __instance, ref Vector3 position, ref Quaternion rotation, PhotonMessageInfo _info)
     {
-        // This prefix runs on ALL clients because it's an RPC.
-        // We only want the HOST (MasterClient) to modify the spawn position before it's sent.
         if (!PhotonNetwork.IsMasterClient || !ConfigManager.SpawnAtLastPosition.Value)
         {
-            return; // Non-masters or feature disabled: do nothing to parameters
+            return;
         }
-
-        // Only modify if the RPC is being initiated by the MasterClient for a player (could be self or other)
-        // The 'info.Sender == null' check often indicates the RPC is being invoked locally by the MC before sending.
-        // Or check if info.Sender is the MasterClient if the RPC can be relayed.
-        // For SpawnRPC, it's usually master initiating.
-        if (info.Sender != null && !info.Sender.IsMasterClient)
-        {
-            // This case should be rare for SpawnRPC, but good to be defensive.
-            // If a non-master somehow tries to send this RPC (e.g. due to another mod or game bug),
-            // the master client shouldn't try to apply last position logic based on a non-master's call.
-            // However, the prefix runs *before* sending, so on MC, info.Sender is usually LocalPlayer.
-            // And on clients receiving, info.Sender is the MC.
-            // The important part is that only the MC *modifies* ref position/rotation.
-        }
-
 
         Photon.Realtime.Player? targetPlayer = __instance.photonView?.Owner;
         if (targetPlayer == null)
@@ -66,50 +49,82 @@ internal static class PlayerAvatarPatches
             return;
         }
 
-        string targetPlayerName = targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
-        bool positionOverriddenByMod = false;
-
-        if (PlayerPositionManager.TryGetLastTransform(targetPlayer, out PlayerTransformData lastTransformData))
+        // Defensive check for RPC sender, though primarily MC should be initiating modifications.
+        if (_info.Sender != null && !_info.Sender.IsMasterClient)
         {
-            LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.SpawnRPC_Prefix] Found last transform for '{targetPlayerName}' at {lastTransformData.Position}. IsDeathHead: {lastTransformData.IsDeathHeadPosition}");
-
-            if (IsSpawnPositionValid(lastTransformData.Position, targetPlayer, selfRadius: 0.5f, selfHeight: 1.8f)) // Example radius/height
-            {
-                LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.SpawnRPC_Prefix] Applying last known VALID position for '{targetPlayerName}': {lastTransformData.Position}");
-                position = lastTransformData.Position; // Modify by ref
-                rotation = lastTransformData.Rotation; // Modify by ref
-                positionOverriddenByMod = true;
-
-                // Optional: Clear after use if it's a one-time thing per level-join.
-                // Given the design, it's better to let ResetPositions on level change handle clearing.
-                // PlayerPositionManager.ClearPlayerPositionRecord(targetPlayer);
-            }
-            else
-            {
-                LatePlugin.Log.LogWarning($"[PlayerAvatarPatches.SpawnRPC_Prefix] Last position for '{targetPlayerName}' ({lastTransformData.Position}) was invalid. Attempting truck spawn.");
-            }
+            // This case indicates a non-master client somehow sent an RPC that this prefix is intercepting.
+            // The MasterClient should not act upon it to change spawn positions.
+            // However, the critical logic here is that only the MasterClient *modifies* ref parameters.
+            // So, this check is more of a log/awareness point. The `!PhotonNetwork.IsMasterClient` above is the main guard.
         }
 
-        if (!positionOverriddenByMod) // If no last position, or it was invalid
+        string targetPlayerName = targetPlayer.NickName ?? $"ActorNr {targetPlayer.ActorNumber}";
+        bool positionOverriddenByMod = false;
+        bool triedLastKnownPosition = false; // To track if we attempted to use a stored position
+
+        if (targetPlayer.IsMasterClient)
         {
-            LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.SpawnRPC_Prefix] No valid last transform for '{targetPlayerName}'. Attempting safe truck spawn.");
-            if (TryFindSafeTruckSpawnPoint(__instance, out Vector3 truckSpawnPos, out Quaternion truckSpawnRot))
+            LatePlugin.Log.LogDebug($"[PlayerAvatarPatches.SpawnRPC_Prefix] Target player '{targetPlayerName}' is the Host. L.A.T.E. will not modify their spawn parameters from the original RPC call.");
+            // positionOverriddenByMod will remain false, original position & rotation will be used.
+            // No need to `return` here, just ensure positionOverriddenByMod isn't set true for host.
+            // The existing logic below will effectively skip if positionOverriddenByMod is false
+            // and triedLastKnownPosition is also false (as it would be for a host's initial spawn).
+        }
+        else // Only apply L.A.T.E.'s spawn logic for non-host players
+        {
+            if (PlayerPositionManager.TryGetLastTransform(targetPlayer, out PlayerTransformData lastTransformData))
             {
-                LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.SpawnRPC_Prefix] Assigning '{targetPlayerName}' to safe truck SP: {truckSpawnPos}");
-                position = truckSpawnPos; // Modify by ref
-                rotation = truckSpawnRot; // Modify by ref
-                positionOverriddenByMod = true;
+                triedLastKnownPosition = true;
+                LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.SpawnRPC_Prefix] Found last transform for '{targetPlayerName}' at {lastTransformData.Position}. IsDeathHead: {lastTransformData.IsDeathHeadPosition}");
+                if (IsSpawnPositionValid(lastTransformData.Position, targetPlayer, selfRadius: 0.5f, selfHeight: 1.8f))
+                {
+                    LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.SpawnRPC_Prefix] Applying last known VALID position for '{targetPlayerName}': {lastTransformData.Position}");
+                    position = lastTransformData.Position;
+                    rotation = lastTransformData.Rotation;
+                    positionOverriddenByMod = true;
+                }
+                else
+                {
+                    LatePlugin.Log.LogWarning($"[PlayerAvatarPatches.SpawnRPC_Prefix] Last position for '{targetPlayerName}' ({lastTransformData.Position}) was invalid. Will consider alternatives.");
+                }
             }
-            else
+
+            if (!positionOverriddenByMod)
             {
-                LatePlugin.Log.LogWarning($"[PlayerAvatarPatches.SpawnRPC_Prefix] No safe truck SP found for '{targetPlayerName}'. Using game's original requested: {position}");
-                // `position` and `rotation` remain as their originally intended values from the game's call to SpawnRPC.
+                bool isLateJoiner = LateJoinManager.IsPlayerAnActiveLateJoiner(targetPlayer.ActorNumber);
+
+                // Try to use a truck spawn point if:
+                // 1. The player is an active late-joiner (and didn't get a valid last known position).
+                // 2. The player is NOT a late-joiner BUT we had prior (invalid) position data for them (triedLastKnownPosition = true),
+                //    suggesting they are rejoining or respawning and their previous spot was bad.
+                if (isLateJoiner || triedLastKnownPosition)
+                {
+                    string reason = isLateJoiner ? "Late joiner" : "Returning player with invalid prior/no valid spot";
+                    LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.SpawnRPC_Prefix] {reason}. Attempting safe truck spawn for '{targetPlayerName}'.");
+                    if (TryFindSafeTruckSpawnPoint(__instance, out Vector3 truckSpawnPos, out Quaternion truckSpawnRot))
+                    {
+                        LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.SpawnRPC_Prefix] Assigning '{targetPlayerName}' to safe truck SP: {truckSpawnPos}");
+                        position = truckSpawnPos;
+                        rotation = truckSpawnRot;
+                        positionOverriddenByMod = true;
+                    }
+                    else
+                    {
+                        LatePlugin.Log.LogWarning($"[PlayerAvatarPatches.SpawnRPC_Prefix] No safe truck SP found for '{targetPlayerName}'. Using game's original requested: {position}");
+                        // positionOverriddenByMod remains false; game's original parameters will be used.
+                    }
+                }
+                else // This is a non-late-joiner, AND they have NO prior L.A.T.E. position data (e.g., initial level spawn for everyone).
+                {
+                    LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.SpawnRPC_Prefix] Player '{targetPlayerName}' is not a late joiner and has no prior L.A.T.E. position data. Using game's originally requested spawn parameters: Pos={position}, RotEuler={rotation.eulerAngles}");
+                    // positionOverriddenByMod remains false; game's original parameters will be used.
+                }
             }
         }
 
         if (positionOverriddenByMod)
         {
-            spawnPositionAssigned.Add(__instance.photonView.ViewID); // Mark that mod has handled this spawn for this avatar instance
+            spawnPositionAssigned.Add(__instance.photonView.ViewID);
         }
         LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.SpawnRPC_Prefix] Final spawn for '{targetPlayerName}' (ViewID {__instance.photonView.ViewID}) will be Pos:{position}, Rot:{rotation.eulerAngles}. OverriddenByMod: {positionOverriddenByMod}");
     }
@@ -316,6 +331,9 @@ internal static class PlayerAvatarPatches
     [HarmonyPostfix]
     public static void PlayerAvatar_OnPhotonSerializeView_Postfix_TrackPosition(PlayerAvatar __instance, PhotonStream stream, PhotonMessageInfo info)
     {
+        // ADD THIS CHECK
+        if (!GameUtilities.IsModLogicActive()) return;
+
         if (PhotonNetwork.IsMasterClient && ConfigManager.SpawnAtLastPosition.Value && stream.IsReading)
         {
             if (__instance.photonView != null && !__instance.photonView.IsMine) // For remote players' avatars
@@ -483,66 +501,83 @@ internal static class PlayerAvatarPatches
     public static void PlayerAvatar_SpawnHook(
         Action<PlayerAvatar, Vector3, Quaternion> orig,
         PlayerAvatar self,
-        Vector3 position, // This position is now what the SpawnRPC (potentially modified by host) has sent
+        Vector3 position,
         Quaternion rotation)
     {
-        PhotonView? pv = PhotonUtilities.GetPhotonView(self);
-        string playerName = GameUtilities.GetPlayerNickname(self);
-
-        // The `position` and `rotation` parameters here are what the client received from the SpawnRPC.
-        // The host has already decided the authoritative spawn location.
-        // So, this hook should primarily just call the original method with these parameters.
-        // Any complex logic for choosing spawn points is now in PlayerAvatar_SpawnRPC_Prefix (Host-side).
-
         if (self == null)
         {
-            LatePlugin.Log.LogError($"[PlayerAvatarPatches.SpawnHook] 'self' is null. Cannot invoke original Spawn method.");
+            LatePlugin.Log.LogError($"[PlayerAvatarPatches.SpawnHook] 'self' is null. Cannot proceed.");
             return;
         }
 
-        LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.SpawnHook] Received call for {playerName} (ViewID {pv?.ViewID}) with Pos:{position}, Rot:{rotation.eulerAngles}. Invoking original game's Spawn method.");
+        PhotonView? pv = PhotonUtilities.GetPhotonView(self);
+        string playerName = GameUtilities.GetPlayerNickname(self);
 
-        try
+        bool alreadySpawned = false;
+        if (ReflectionCache.PlayerAvatar_SpawnedField != null)
         {
-            orig.Invoke(self, position, rotation);
+            try
+            {
+                alreadySpawned = ReflectionCache.PlayerAvatar_SpawnedField.GetValue(self) is bool val && val;
+            }
+            catch (Exception ex)
+            {
+                LatePlugin.Log.LogError($"[PlayerAvatarPatches.SpawnHook] Error reflecting PlayerAvatar.spawned for {playerName}: {ex}");
+                // Proceed with caution, or consider not calling orig if reflection fails.
+                // For now, if reflection fails, let's assume not spawned to be safer to original behavior.
+            }
         }
-        catch (Exception e)
+        else
         {
-            LatePlugin.Log.LogError($"[PlayerAvatarPatches.SpawnHook] Error calling original PlayerAvatar.Spawn: {e}");
+            LatePlugin.Log.LogError($"[PlayerAvatarPatches.SpawnHook] ReflectionCache.PlayerAvatar_SpawnedField is null! Cannot check if avatar {playerName} is already spawned.");
+            // Fallback: Call original to maintain game flow, though it might cause redundant RPCs.
         }
 
-        // The spawnPositionAssigned flag might still be useful if we want to track if *any* mod logic
-        // (RPC prefix or StartHook correction) touched this spawn event.
-        // However, its primary role of preventing duplicate logic *within this hook* is diminished.
-        // If SpawnRPC prefix marks it, this hook might see it.
-        // For now, let's remove its direct usage here as the authority shifted.
-        // if (pv != null) spawnPositionAssigned.Add(pv.ViewID);
+        if (!alreadySpawned)
+        {
+            LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.SpawnHook] Avatar {playerName} (ViewID {pv?.ViewID}) is not yet marked as 'spawned'. Invoking original game's PlayerAvatar.Spawn(Pos:{position}, Rot:{rotation.eulerAngles}). This will broadcast SpawnRPC.");
+            try
+            {
+                orig.Invoke(self, position, rotation); // This calls the original PlayerAvatar.Spawn, which sends the RPC
+            }
+            catch (Exception e)
+            {
+                LatePlugin.Log.LogError($"[PlayerAvatarPatches.SpawnHook] Error calling original PlayerAvatar.Spawn for {playerName}: {e}");
+            }
+        }
+        else
+        {
+            LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.SpawnHook] Avatar {playerName} (ViewID {pv?.ViewID}) is already marked as 'spawned'. Skipping call to original game's PlayerAvatar.Spawn to prevent redundant SpawnRPC broadcast.");
+            // If already spawned, the game likely doesn't intend for its position to be reset by a new generic SpawnRPC
+            // unless explicitly handled by a more specific mechanism (like a direct targeted RPC from your mod if needed).
+            // We might still want to ensure the local representation matches the 'position' and 'rotation'
+            // if this SpawnHook was called directly with new authoritative coordinates for an already spawned player.
+            // However, the original PlayerAvatar.Spawn itself just broadcasts.
+            // The actual position setting happens in SpawnRPC.
+            // For now, mimicking the old mod's guard is the safest first step.
+        }
     }
 
     public static void PlayerAvatar_StartHook(Action<PlayerAvatar> orig, PlayerAvatar self)
     {
         orig.Invoke(self); // Let the original Start logic run
 
+        // Initial logging to see when StartHook is called for whom
+        PhotonView? pvForLog = PhotonUtilities.GetPhotonView(self);
+        string playerNameForLog = GameUtilities.GetPlayerNickname(self);
+        LatePlugin.Log.LogDebug($"[PlayerAvatarPatches.StartHook] Entered for {playerNameForLog} (ViewID: {pvForLog?.ViewID}, IsMine: {pvForLog?.IsMine ?? false}, IsMasterClientOwner: {pvForLog?.Owner?.IsMasterClient ?? false})");
+
+
         if (!GameUtilities.IsModLogicActive() || !PhotonNetwork.IsMasterClient)
         {
-            // The LoadingLevelAnimationCompletedRPC is called by PlayerAvatar.Start itself on MasterClient
-            // if LevelGenerator.Instance.Generated. But it sends to All.
-            // Late joiners might need this. Let's ensure it's sent if MC.
+            // ... (existing logic for non-MC or inactive mod logic, ensure LoadingLevelAnimationCompletedRPC is handled appropriately) ...
+            // This part seems okay, mainly for ensuring clients get LoadingLevelAnimationCompletedRPC
+            // if the game or MC's original Start doesn't cover it for them.
             bool levelAnimCompleted = ReflectionCache.PlayerAvatar_LevelAnimationCompletedField != null &&
-                                      (bool)(ReflectionCache.PlayerAvatar_LevelAnimationCompletedField.GetValue(self) ?? false);
+                                      ReflectionCache.PlayerAvatar_LevelAnimationCompletedField.GetValue(self) is bool val && val;
             if (PhotonNetwork.IsMasterClient && self.photonView != null && !levelAnimCompleted)
             {
-                // Check if the game already sent it. PlayerAvatar.Start does:
-                // if (SemiFunc.IsMasterClient() && LevelGenerator.Instance.Generated) { LevelGenerator.Instance.PlayerSpawn(); }
-                // PlayerSpawn() might call LoadingLevelAnimationCompletedRPC indirectly or PlayerAvatar.Spawn does.
-                // PlayerAvatar.LoadingLevelAnimationCompleted() sends the RPC.
-                // PlayerAvatar.Start() calls PlayerSpawn() which calls PlayerAvatar.Spawn()
-                // PlayerAvatar.SpawnRPC() sets spawned = true.
-                // PlayerAvatar.FixedUpdate() sends PlayerSpawnedRPC after a few frames if not level generated.
-                // The original code in question here sends it from PlayerAvatar.StartHook
-                // It might be redundant or it might be crucial for late joiners if the game's own path doesn't cover it.
-                // Let's keep it but log.
-                LatePlugin.Log.LogDebug($"[PlayerAvatarPatches.StartHook] {GameUtilities.GetPlayerNickname(self)} (ViewID {self.photonView?.ViewID}) - MC ensuring LoadingLevelAnimationCompletedRPC.");
+                LatePlugin.Log.LogDebug($"[PlayerAvatarPatches.StartHook] Non-ModLogic/Non-MC Path: {GameUtilities.GetPlayerNickname(self)} (ViewID {self.photonView?.ViewID}) - MC ensuring LoadingLevelAnimationCompletedRPC (AllBuffered).");
                 self.photonView?.RPC("LoadingLevelAnimationCompletedRPC", RpcTarget.AllBuffered);
             }
             return;
@@ -555,27 +590,39 @@ internal static class PlayerAvatarPatches
             return;
         }
 
-        int viewID = pv.ViewID;
+        // ***** ADD THIS CRITICAL CHECK *****
+        if (pv.Owner.IsMasterClient)
+        {
+            LatePlugin.Log.LogDebug($"[PlayerAvatarPatches.StartHook] Player {GameUtilities.GetPlayerNickname(self)} is the HOST. Skipping L.A.T.E.'s corrective origin-spawn logic for them.");
+            // Ensure LoadingLevelAnimationCompletedRPC is sent by host for self if needed, though original Start likely handles this via PlayerSpawn.
+            // This is a bit redundant with the block above but re-evaluating for host-specific case.
+            bool levelAnimCompletedHost = ReflectionCache.PlayerAvatar_LevelAnimationCompletedField != null &&
+                                          ReflectionCache.PlayerAvatar_LevelAnimationCompletedField.GetValue(self) is bool val && val;
+            if (!levelAnimCompletedHost)
+            {
+                LatePlugin.Log.LogDebug($"[PlayerAvatarPatches.StartHook] Host {GameUtilities.GetPlayerNickname(self)} (ViewID {pv.ViewID}) - levelAnimationCompleted is false. Sending RPC from StartHook (AllBuffered).");
+                pv.RPC("LoadingLevelAnimationCompletedRPC", RpcTarget.AllBuffered);
+            }
+            return; // Do not proceed with corrective spawn for the host.
+        }
+        // ***** END OF ADDED CHECK *****
 
-        // Condition for corrective action:
-        // 1. Mod is active, current client is MasterClient.
-        // 2. Game level is running.
-        // 3. Player is at/near origin.
-        // 4. This specific correction hasn't been tried yet for this player in Start().
-        bool isAtOrigin = self.transform.position.sqrMagnitude < 1.0f; // Check if very close to 0,0,0 (use a small threshold)
+
+        int viewID = pv.ViewID;
+        bool isAtOrigin = self.transform.position.sqrMagnitude < 1.0f;
         bool levelIsActive = GameDirector.instance != null && GameDirector.instance.currentState == GameDirector.gameState.Main;
 
         if (levelIsActive && isAtOrigin && !spawnPositionCorrectedInStart.Contains(viewID))
         {
             string playerName = GameUtilities.GetPlayerNickname(self);
-            LatePlugin.Log.LogWarning($"[PlayerAvatarPatches.StartHook] Player {playerName} (ViewID {viewID}) is at origin ({self.transform.position}) after Start. Attempting corrective spawn.");
+            LatePlugin.Log.LogWarning($"[PlayerAvatarPatches.StartHook] Player {playerName} (ViewID {viewID}, Owner: {pv.Owner.NickName}) is at origin ({self.transform.position}) after Start. Attempting corrective spawn.");
 
             if (TryFindSafeTruckSpawnPoint(self, out Vector3 correctedPosition, out Quaternion correctedRotation))
             {
-                LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.StartHook] Corrective spawn for {playerName} to {correctedPosition}. Sending SpawnRPC.");
-                pv.RPC("SpawnRPC", RpcTarget.All, correctedPosition, correctedRotation);
-                spawnPositionCorrectedInStart.Add(viewID); // Mark as corrected to prevent loops if Start is called again
-                spawnPositionAssigned.Add(viewID); // Also mark for SpawnHook
+                LatePlugin.Log.LogInfo($"[PlayerAvatarPatches.StartHook] Corrective spawn for {playerName} to {correctedPosition}. Sending SpawnRPC to owner: {pv.Owner.NickName}.");
+                pv.RPC("SpawnRPC", pv.Owner, correctedPosition, correctedRotation);
+                spawnPositionCorrectedInStart.Add(viewID);
+                spawnPositionAssigned.Add(viewID);
             }
             else
             {
@@ -583,16 +630,12 @@ internal static class PlayerAvatarPatches
             }
         }
 
-        // The LoadingLevelAnimationCompletedRPC might be important for late joiners
-        // PlayerAvatar.Start calls LevelGenerator.Instance.PlayerSpawn() on MC if level generated.
-        // PlayerSpawn() calls PlayerAvatar.Spawn().
-        // LoadingLevelAnimationCompleted() is a separate RPC.
-        // The original StartHook sent this. Let's ensure it's sent for late joiners if not already completed.
+        // Ensure non-host clients (especially late joiners processed here) also get this if not already set.
         bool levelAnimCompletedAfterLogic = ReflectionCache.PlayerAvatar_LevelAnimationCompletedField != null &&
-                                             (bool)(ReflectionCache.PlayerAvatar_LevelAnimationCompletedField.GetValue(self) ?? false);
+                                             ReflectionCache.PlayerAvatar_LevelAnimationCompletedField.GetValue(self) is bool val2 && val2;
         if (!levelAnimCompletedAfterLogic)
         {
-            LatePlugin.Log.LogDebug($"[PlayerAvatarPatches.StartHook] {GameUtilities.GetPlayerNickname(self)} (ViewID {pv.ViewID}) - levelAnimationCompleted is false. Sending RPC from StartHook.");
+            LatePlugin.Log.LogDebug($"[PlayerAvatarPatches.StartHook] {GameUtilities.GetPlayerNickname(self)} (ViewID {pv.ViewID}) - levelAnimationCompleted is false after L.A.T.E. logic. Sending RPC (AllBuffered).");
             pv.RPC("LoadingLevelAnimationCompletedRPC", RpcTarget.AllBuffered);
         }
     }

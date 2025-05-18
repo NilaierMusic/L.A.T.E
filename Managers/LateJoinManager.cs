@@ -285,11 +285,43 @@ internal static class LateJoinManager
             }
 
             // --- Final step: Handle self-death based on KillIfPreviouslyDead config ---
-            if (playerAvatar != null) // Need avatar for this
+            if (playerAvatar != null && !targetPlayer.IsMasterClient)
             {
-                PlayerLifeStatus currentStatus = PlayerStateManager.GetPlayerLifeStatus(targetPlayer);
-                // ADDED/ENSURED DIAGNOSTIC LOGGING HERE:
-                Log.LogInfo($"[LateJoinManager] FINAL STEP CHECK for {nickname}: PlayerStateManager status is {currentStatus}. KillIfPreviouslyDead config: {ConfigManager.KillIfPreviouslyDead.Value}. TargetPlayer UserId: '{targetPlayer.UserId}'");
+                PlayerLifeStatus currentStatus = PlayerStateManager.GetPlayerLifeStatus(targetPlayer); // This now uses SteamID internally
+
+                string idForLog = $"PhotonUserId: '{targetPlayer.UserId}' (Fallback if SteamID not found)"; // Default
+                // Try to get the actual SteamID used by PlayerStateManager for logging
+                PlayerAvatar? avatarForSteamId = GameUtilities.FindPlayerAvatar(targetPlayer);
+                if (avatarForSteamId != null && ReflectionCache.PlayerAvatar_SteamIDField != null)
+                {
+                    try
+                    {
+                        string? sID = ReflectionCache.PlayerAvatar_SteamIDField.GetValue(avatarForSteamId) as string;
+                        if (!string.IsNullOrEmpty(sID))
+                        {
+                            idForLog = $"SteamID: '{sID}'";
+                        }
+                        else
+                        {
+                            idForLog += $", PlayerAvatar.steamID was null/empty";
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        idForLog += $", Error reflecting SteamID: {ex.Message}";
+                    }
+                }
+                else if (avatarForSteamId == null)
+                {
+                    idForLog += ", PlayerAvatar not found for SteamID logging";
+                }
+                else
+                { // ReflectionCache.PlayerAvatar_SteamIDField == null
+                    idForLog += ", ReflectionCache for SteamID is null";
+                }
+
+
+                Log.LogInfo($"[LateJoinManager] FINAL STEP CHECK for {nickname}: PlayerStateManager status is {currentStatus}. KillIfPreviouslyDead config: {ConfigManager.KillIfPreviouslyDead.Value}. Player ID for tracking: {idForLog}");
 
                 if (currentStatus == PlayerLifeStatus.Dead)
                 {
@@ -300,13 +332,13 @@ internal static class LateJoinManager
                         {
                             if (PlayerStateManager.TryGetPlayerDeathEnemyIndex(targetPlayer, out int selfDeathEnemyIndex))
                             {
-                                Log.LogInfo($"[LateJoinManager] FINAL STEP: Killing late-joiner {nickname} as they were previously dead (KillIfPreviouslyDead=true). EnemyIndex: {selfDeathEnemyIndex}. Sending PlayerDeathRPC via AllBuffered.");
-                                targetPv.RPC("PlayerDeathRPC", RpcTarget.AllBuffered, selfDeathEnemyIndex);
+                                Log.LogInfo($"[LateJoinManager] FINAL STEP: Killing late-joiner {nickname} as they were previously dead (KillIfPreviouslyDead=true). EnemyIndex: {selfDeathEnemyIndex}. Sending PlayerDeathRPC via All (Non-Buffered).");
+                                targetPv.RPC("PlayerDeathRPC", RpcTarget.All, selfDeathEnemyIndex); // CHANGED HERE
                             }
                             else
                             {
-                                Log.LogWarning($"[LateJoinManager] FINAL STEP: Late joiner {nickname} was previously dead (KillIfPreviouslyDead=true), but could not retrieve enemyIndex for their death. Sending PlayerDeathRPC with -1 via AllBuffered.");
-                                targetPv.RPC("PlayerDeathRPC", RpcTarget.AllBuffered, -1); // Fallback
+                                Log.LogWarning($"[LateJoinManager] FINAL STEP: Late joiner {nickname} was previously dead (KillIfPreviouslyDead=true), but could not retrieve enemyIndex for their death. Sending PlayerDeathRPC with -1 via All (Non-Buffered).");
+                                targetPv.RPC("PlayerDeathRPC", RpcTarget.All, -1); // CHANGED HERE, Fallback
                             }
                         }
                         else
@@ -322,7 +354,11 @@ internal static class LateJoinManager
                 }
                 // If currentStatus is Alive or Unknown, they join alive by default (unless other game logic kills them later).
             }
-            else
+            else if (targetPlayer.IsMasterClient)
+            {
+                Log.LogInfo($"[LateJoinManager] FINAL STEP: Skipping self-death check for {nickname} as they are the Host.");
+            }
+            else // playerAvatar was null
             {
                 Log.LogWarning($"[LateJoinManager] FINAL STEP: Skipping self-death check for {nickname} due to null playerAvatar.");
             }

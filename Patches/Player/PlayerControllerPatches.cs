@@ -3,6 +3,7 @@ using HarmonyLib;
 using LATE.Config;
 using LATE.Core;
 using LATE.Managers;
+using LATE.Utilities;
 using Photon.Pun;
 using UnityEngine;
 
@@ -17,6 +18,9 @@ internal static class PlayerControllerPatches
     [HarmonyPostfix]
     private static void PlayerController_FixedUpdate_Postfix_TrackPosition(PlayerController __instance)
     {
+        // ADD THIS CHECK
+        if (!GameUtilities.IsModLogicActive()) return;
+
         if (PhotonNetwork.IsMasterClient && ConfigManager.SpawnAtLastPosition.Value)
         {
             if (__instance.playerAvatarScript != null && __instance.playerAvatarScript.photonView != null && __instance.playerAvatarScript.photonView.IsMine)
